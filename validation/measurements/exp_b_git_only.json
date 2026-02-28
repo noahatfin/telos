@@ -1,0 +1,7 @@
+{
+  "mode": "git_only",
+  "bug_report": "Users report they can create tasks pointing to non-existent boards. The task is created successfully even when the board_id doesn't exist.",
+  "git_log_tasks": "deac65c Implement board management with cross-module integrity\n484cace Define task status transition rules\nd8cf0d6 Implement task CRUD with validation constraints\nab4b298 Add auth error handling and RBAC role definitions\n8d59a7a Initial project skeleton",
+  "git_history_tasks_file": "a85e0e8 Allow flexible task status updates for better workflow\n829d6e0 Add forward-only task status transition validation\n8d59a7a Initial project skeleton",
+  "prompt": "A bug has been reported: users can create tasks that reference non-existent boards. Find the root cause and suggest a fix. You have access to git history shown below."
+}

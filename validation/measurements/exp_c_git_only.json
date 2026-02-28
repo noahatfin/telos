@@ -1,0 +1,6 @@
+{
+  "mode": "git_only",
+  "task": "Review this code change. Identify any issues, regressions, or concerns. Approve or reject with reasoning.",
+  "git_diff": "diff --git a/src/auth/mod.rs b/src/auth/mod.rs\nindex 4ecc106..4dfe98d 100644\n--- a/src/auth/mod.rs\n+++ b/src/auth/mod.rs\n@@ -1,7 +1,7 @@\n use serde::{Deserialize, Serialize};\n \n /// JWT token configuration\n-pub const TOKEN_EXPIRY_SECS: u64 = 3600; // 1 hour \u2014 CONSTRAINT: must be <= 1 hour\n+pub const TOKEN_EXPIRY_SECS: u64 = 86400; // Changed for longer sessions // 1 hour \u2014 CONSTRAINT: must be <= 1 hour\n \n #[derive(Debug, Clone, Serialize, Deserialize)]\n pub struct AuthConfig {\n@@ -14,7 +14,7 @@ impl Default for AuthConfig {\n     fn default() -> Self {\n         Self {\n             secret: \"dev-secret-do-not-use-in-prod\".into(),\n-            token_expiry_secs: TOKEN_EXPIRY_SECS,\n+            token_expiry_secs: TOKEN_EXPIRY_SECS, // Now 24 hours\n             issuer: \"taskboard\".into(),\n         }\n     }",
+  "commit_message": "Increase token expiry for better user experience\n\nChanged token expiry from 1 hour to 24 hours to reduce\nhow often users need to re-authenticate. Users reported\nfrustration with frequent logouts during long sessions."
+}

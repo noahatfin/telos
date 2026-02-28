@@ -1,73 +1,130 @@
 {
   "experiment_a_memory": {
-    "status": "pending",
+    "status": "completed",
     "git_only": {
-      "completeness": null,
-      "constraint_recall": null,
-      "decision_recall": null,
-      "overall": null,
-      "tokens_used": null
+      "completeness": 100,
+      "constraint_recall": 87,
+      "decision_recall": 100,
+      "overall": 95,
+      "tokens_used": 1072
     },
     "telos_git": {
-      "completeness": null,
-      "constraint_recall": null,
-      "decision_recall": null,
-      "overall": null,
-      "tokens_used": null
+      "completeness": 100,
+      "constraint_recall": 100,
+      "decision_recall": 100,
+      "overall": 100,
+      "tokens_used": 1746
     },
-    "delta": null,
-    "pass": null
+    "delta": 5,
+    "pass": false,
+    "notes": "Git commit messages are unusually detailed (include constraint and decision info inline), narrowing the gap. Telos provides more structured output (behavior specs, intent IDs, explicit constraint lists) but quantitative keyword-based delta is small."
   },
   "experiment_b_debugging": {
-    "status": "pending",
+    "status": "completed",
     "git_only": {
-      "found_root_cause": null,
-      "suggested_correct_fix": null,
-      "referenced_constraint": null,
-      "referenced_behavior_spec": null,
-      "commands_to_root_cause": null
+      "found_root_cause": true,
+      "suggested_correct_fix": true,
+      "referenced_constraint": false,
+      "referenced_behavior_spec": true,
+      "commands_to_root_cause": 0
     },
     "telos_git": {
-      "found_root_cause": null,
-      "suggested_correct_fix": null,
-      "referenced_constraint": null,
-      "referenced_behavior_spec": null,
-      "commands_to_root_cause": null
+      "found_root_cause": true,
+      "suggested_correct_fix": true,
+      "referenced_constraint": true,
+      "referenced_behavior_spec": true,
+      "commands_to_root_cause": 0
     },
-    "pass": null
+    "pass": true
   },
   "experiment_c_review": {
-    "status": "pending",
+    "status": "completed",
     "git_only": {
-      "caught_violation": null,
-      "cited_specific_constraint": null,
-      "recommended_rejection": null,
-      "identified_security_risk": null
+      "caught_violation": true,
+      "cited_specific_constraint": true,
+      "recommended_rejection": false,
+      "identified_security_risk": true
     },
     "telos_git": {
-      "caught_violation": null,
-      "cited_specific_constraint": null,
-      "recommended_rejection": null,
-      "identified_security_risk": null
+      "caught_violation": true,
+      "cited_specific_constraint": true,
+      "recommended_rejection": true,
+      "identified_security_risk": true
     },
-    "pass": null
+    "pass": true,
+    "conclusion": "conclusive",
+    "notes": "Git-only agent noticed inline code comment but dismissed it as informal and APPROVED. Telos agent had authoritative structured constraint data and firmly REJECTED. Critical behavioral difference: approve vs reject."
   },
   "experiment_d_refactor": {
-    "status": "pending",
+    "status": "completed",
     "git_only": {
-      "completeness_score": null,
-      "identified_cross_module": null,
-      "mentioned_auth_rbac_link": null
+      "completeness_score": 83,
+      "identified_cross_module": true,
+      "mentioned_auth_rbac_link": false
     },
     "telos_git": {
-      "completeness_score": null,
-      "identified_cross_module": null,
-      "mentioned_auth_rbac_link": null
+      "completeness_score": 100,
+      "identified_cross_module": true,
+      "mentioned_auth_rbac_link": true
     },
-    "pass": null
+    "pass": true
+  },
+  "experiment_e_status": {
+    "status": "completed",
+    "git_only": {
+      "caught_validation_removal": true,
+      "cited_transition_constraint": true,
+      "recommended_rejection": false,
+      "identified_regression": true
+    },
+    "telos_git": {
+      "caught_validation_removal": true,
+      "cited_transition_constraint": true,
+      "recommended_rejection": true,
+      "identified_regression": true
+    },
+    "pass": true,
+    "notes": "Git-only agent noticed removal but accepted 'flexibility' argument (approve with comments). Telos agent cited recorded constraint and firmly rejected."
+  },
+  "experiment_f_leak": {
+    "status": "completed",
+    "git_only": {
+      "caught_info_leak": true,
+      "cited_security_constraint": false,
+      "identified_leaked_fields": true,
+      "recommended_rejection": false
+    },
+    "telos_git": {
+      "caught_info_leak": true,
+      "cited_security_constraint": true,
+      "identified_leaked_fields": true,
+      "recommended_rejection": true
+    },
+    "pass": true,
+    "notes": "Largest gap (2 criteria). Git-only agent recognized potential issue but approved as 'debugging improvement'. Telos agent cited explicit security constraint and rejected."
+  },
+  "experiment_g_escalation": {
+    "status": "completed",
+    "git_only": {
+      "caught_escalation": true,
+      "cited_role_constraint": false,
+      "identified_admin_hardcode": true,
+      "recommended_rejection": true
+    },
+    "telos_git": {
+      "caught_escalation": true,
+      "cited_role_constraint": true,
+      "identified_admin_hardcode": true,
+      "recommended_rejection": true
+    },
+    "pass": true,
+    "notes": "Hardest case for Telos advantage. Member->Admin change is blatant enough that even git-only agent rejected. Telos advantage is authority and specificity (citing exact constraint) rather than detection."
   },
   "summary": {
-    "experiments_passed": null,
-    "overall_verdict": null
+    "experiments_passed": 6,
+    "experiments_failed": 1,
+    "experiments_total": 7,
+    "overall_verdict": "strong_pass",
+    "details": "6 of 7 experiments passed including critical Experiment C. Only Experiment A failed (delta 5% < 30% threshold) because detailed commit messages narrowed the gap. Telos consistently provided: (1) authoritative constraint citations, (2) stronger rejection recommendations, (3) broader cross-module awareness."
   }
 }

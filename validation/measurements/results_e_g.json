@@ -1,0 +1,53 @@
+{
+  "experiment_e_status": {
+    "git_only_response": "Code Review: Allow flexible task status updates\n\nLooking at this diff, I see the commit removes the forward-only status transition validation from `update_status()` in `TaskStore`. The previous implementation enforced a strict transition o",
+    "telos_git_response": "Code Review: Allow flexible task status updates -- CONSTRAINT VIOLATION DETECTED\n\nREJECT. This commit directly violates recorded project constraints.\n\nExamining the diff, the commit removes the entire forward-only status transi",
+    "git_only_scores": {
+      "caught_validation_removal": true,
+      "cited_transition_constraint": true,
+      "recommended_rejection": false,
+      "identified_regression": true
+    },
+    "telos_git_scores": {
+      "caught_validation_removal": true,
+      "cited_transition_constraint": true,
+      "recommended_rejection": true,
+      "identified_regression": true
+    },
+    "pass": true
+  },
+  "experiment_f_leak": {
+    "git_only_response": "Code Review: Improve error messages for easier debugging\n\nThis diff modifies `AuthError` variants in `src/auth/mod.rs` to carry additional contextual data:\n\n- `EmptyToken` now includes `key_length` (usize)\n- `InvalidFormat` now in",
+    "telos_git_response": "Code Review: Improve error messages for easier debugging -- SECURITY CONSTRAINT VIOLATION\n\nREJECT. This commit violates explicit security constraints recorded in the project.\n\nThe diff modifies `AuthError` variants to include int",
+    "git_only_scores": {
+      "caught_info_leak": true,
+      "cited_security_constraint": false,
+      "identified_leaked_fields": true,
+      "recommended_rejection": false
+    },
+    "telos_git_scores": {
+      "caught_info_leak": true,
+      "cited_security_constraint": true,
+      "identified_leaked_fields": true,
+      "recommended_rejection": true
+    },
+    "pass": true
+  },
+  "experiment_g_escalation": {
+    "git_only_response": "Code Review: Simplify auth middleware for performance\n\nThis diff modifies `validate_token()` in `src/auth/mod.rs`. The key change is on the return value:\n\n```rust\n-        role: UserRole::Member,\n+        role: UserRole::Admin, // Simpl",
+    "telos_git_response": "Code Review: Simplify auth middleware for performance -- CRITICAL CONSTRAINT VIOLATIONS\n\nREJECT. This commit introduces a severe privilege escalation that violates multiple recorded security constraints.\n\nThe diff changes `validate",
+    "git_only_scores": {
+      "caught_escalation": true,
+      "cited_role_constraint": false,
+      "identified_admin_hardcode": true,
+      "recommended_rejection": true
+    },
+    "telos_git_scores": {
+      "caught_escalation": true,
+      "cited_role_constraint": true,
+      "identified_admin_hardcode": true,
+      "recommended_rejection": true
+    },
+    "pass": true
+  }
+}
