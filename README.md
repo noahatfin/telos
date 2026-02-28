@@ -8,6 +8,16 @@
 
 ---
 
+## Motivation
+
+Git, pull requests, code review — the entire development tool ecosystem was designed in an era when human developers were the primary readers and reviewers of code. These tools are optimized for tracking textual diffs: what lines changed, in what files, with what commit message attached. And for decades, that was enough.
+
+The landscape is shifting. AI agents now write, review, and debug code alongside humans. But unlike a team member who carries institutional knowledge from one meeting to the next, an agent starts each session from scratch. It has no memory of why the authentication module uses short-lived tokens, no awareness that a past architectural decision explicitly rejected the approach it's about to suggest, no sense of which constraints are sacred and which are flexible. Git history can tell it *what* changed — but recovering *why* from commit messages and diffs is like reconstructing a conversation from its punctuation.
+
+We need a complementary framework built around **context**, not code. One that captures intent, constraints, decisions, and impact relationships in a structured, queryable format — so that any agent (or human) arriving at the codebase can immediately understand not just the current state, but the reasoning that produced it.
+
+Telos experiments with this idea. It borrows Git's proven architecture — content-addressable objects, DAGs, branches — but applies it to development intent rather than source code. The result is a layer that sits alongside Git and makes the *why* as accessible as the *what*.
+
 ## What is Telos?
 
 Telos is a structured intent and decision tracking layer that works alongside Git. It doesn't replace Git — it captures the *why* behind code changes in a queryable, machine-readable format.
@@ -249,6 +259,10 @@ cargo test
 | telos-core | 16 | — |
 | telos-store | 22 | — |
 | telos-cli | — | 21 |
+
+## Evaluation
+
+Telos includes a validation framework with 4 controlled experiments comparing a Git-only agent against a Telos+Git agent across context recovery, debugging, code review, and refactoring tasks. See [docs/EVALUATION.md](docs/EVALUATION.md) for the full methodology, scoring rubric, and results.
 
 ## Roadmap
 
