@@ -1,6 +1,6 @@
 # Telos
 
-**Intent-native development tracking for humans and AI agents.**
+**Agent-first intent and constraint tracking layer for Git.**
 
 ![build](https://img.shields.io/badge/build-passing-brightgreen)
 ![license](https://img.shields.io/badge/license-MIT-blue)
@@ -10,36 +10,40 @@
 
 ## Motivation
 
-Git, pull requests, code review — the entire development tool ecosystem was designed in an era when human developers were the primary readers and reviewers of code. These tools are optimized for tracking textual diffs: what lines changed, in what files, with what commit message attached. And for decades, that was enough.
+Git tracks **what changed** in code. But AI agents — and human developers — need to know **why**: what was intended, what constraints must be respected, what decisions were made and why. This context lives in commit messages, PR descriptions, Slack threads, and developer memory — all places that are unstructured, unsearchable, and invisible to agents starting a new session.
 
-The landscape is shifting. AI agents now write, review, and debug code alongside humans. But unlike a team member who carries institutional knowledge from one meeting to the next, an agent starts each session from scratch. It has no memory of why the authentication module uses short-lived tokens, no awareness that a past architectural decision explicitly rejected the approach it's about to suggest, no sense of which constraints are sacred and which are flexible. Git history can tell it *what* changed — but recovering *why* from commit messages and diffs is like reconstructing a conversation from its punctuation.
-
-We need a complementary framework built around **context**, not code. One that captures intent, constraints, decisions, and impact relationships in a structured, queryable format — so that any agent (or human) arriving at the codebase can immediately understand not just the current state, but the reasoning that produced it.
-
-Telos experiments with this idea. It borrows Git's proven architecture — content-addressable objects, DAGs, branches — but applies it to development intent rather than source code. The result is a layer that sits alongside Git and makes the *why* as accessible as the *what*.
+Telos captures intent, constraints, decisions, and code bindings in a structured, queryable, content-addressable store that sits alongside Git. It is designed primarily for AI agents (with human developer UX as a secondary concern), giving them persistent memory across sessions and structured access to the reasoning behind code.
 
 ## What is Telos?
 
-Telos is a structured intent and decision tracking layer that works alongside Git. It doesn't replace Git — it captures the *why* behind code changes in a queryable, machine-readable format.
+Telos is a Git layer that tracks the *why* behind code changes:
 
-Git tracks **what changed** in your code. Telos tracks **what you intended**, **what constraints you set**, and **what decisions you made and why**. Every intent, decision, and behavioral expectation is stored as a content-addressable object (SHA-256), forming a DAG that mirrors your development history.
+| Git tracks | Telos tracks |
+|------------|-------------|
+| File diffs | **Intents** — what you set out to do |
+| Commit messages | **Constraints** — rules that must/should/prefer be followed |
+| Blame | **Decisions** — choices made, alternatives rejected, rationale |
+| File paths | **Code Bindings** — which constraints apply to which code |
+| — | **Agent Operations** — what AI agents did, why, and with what result |
 
-Telos is designed for both human developers and AI agents. Its `--json` output mode and `context` command make it a natural integration point for LLM-powered coding assistants that need to recover project context across sessions.
+Every object is content-addressed (SHA-256), immutable, and forms a DAG — the same architecture as Git, applied to development reasoning.
 
-## Why Telos?
+## Why Telos over flat files?
 
-| Scenario | Git only | Git + Telos |
-|----------|----------|-------------|
-| **Cross-session context recovery** | Re-read commit messages, grep through code | `telos context --impact auth` — get all intents, constraints, and decisions for a domain |
-| **Debugging with constraints** | Hope someone documented invariants | `telos query intents --constraint-contains "must not"` — find all safety constraints |
-| **Code review / constraint guarding** | Reviewer must remember all prior decisions | `telos query decisions --tag architecture` — surface relevant past decisions |
-| **Impact-scoped refactoring** | Manual grep for affected areas | `telos query intents --impact payments` — find everything that touches a subsystem |
+A `CONSTRAINTS.md` or ADR directory captures the same *information*. Telos's advantage is **queryability**:
+
+```bash
+# Flat file: grep and hope
+grep -r "authentication" docs/decisions/
+
+# Telos: structured, scoped queries
+telos query constraints --file src/auth/mod.rs       # What constraints apply to this file?
+telos query constraints --symbol validate_token       # What about this function?
+telos query constraints --impact security --json      # All active security constraints, machine-readable
+telos query agent-ops --agent claude-review           # What did this agent do across sessions?
+```
 
 ## Quick Start
-
-### Prerequisites
-
-- [Rust toolchain](https://rustup.rs/) (1.70+)
 
 ### Build from source
 
@@ -47,54 +51,49 @@ Telos is designed for both human developers and AI agents. Its `--json` output m
 git clone https://github.com/noahatfin/telos.git
 cd telos
 cargo build --release
+# Binary: target/release/telos-cli
 ```
 
-The binary is at `target/release/telos-cli`.
-
-### Initialize a repository
+### Basic workflow
 
 ```bash
+# Initialize
 telos init
-```
 
-This creates a `.telos/` directory in the current folder.
-
-### Create your first intent
-
-```bash
+# Capture intent
 telos intent \
   --statement "Add user authentication with JWT tokens" \
   --constraint "Sessions must expire after 24 hours" \
-  --constraint "Passwords must be hashed with bcrypt" \
-  --impact auth \
-  --impact security \
-  --behavior "GIVEN a valid login|WHEN credentials are submitted|THEN a JWT token is returned"
-```
+  --impact auth --impact security
 
-### Record a decision
+# Create standalone constraints with lifecycle
+telos constraint \
+  --statement "All API endpoints must use HTTPS" \
+  --severity must --impact security
 
-```bash
+# Record decisions
 telos decide \
   --intent abc1234 \
-  --question "Which JWT library should we use?" \
+  --question "Which JWT library?" \
   --decision "Use jsonwebtoken crate" \
-  --rationale "Most popular, well-maintained, supports RS256" \
-  --alternative "frank_jwt|Fewer downloads, less active maintenance" \
-  --tag architecture \
-  --tag dependency
-```
+  --rationale "Most popular, well-maintained" \
+  --tag architecture
 
-### Query context
+# Bind constraints to code
+telos bind abc1234 --file src/auth/mod.rs --symbol validate_token --type function
 
-```bash
-# Show all intents and decisions for an impact area
-telos context --impact auth
+# Query
+telos context --impact auth --json          # Everything about auth
+telos query constraints --file src/auth/mod.rs  # Constraints on this file
+telos query agent-ops --agent claude-review     # Agent history
 
-# Find intents with specific constraints
-telos query intents --constraint-contains "must not"
+# Constraint lifecycle
+telos supersede abc1234 --statement "Updated requirement" --reason "Policy change"
+telos deprecate def5678 --reason "Feature removed"
 
-# Find decisions by tag
-telos query decisions --tag architecture
+# Validate
+telos check --bindings    # Are code bindings still valid?
+telos reindex             # Rebuild query indexes
 ```
 
 ## Core Concepts
@@ -105,40 +104,50 @@ erDiagram
     Intent ||--o{ Intent : "parent (DAG)"
     Intent ||--o{ DecisionRecord : "linked by intent_id"
     Intent ||--o| BehaviorDiff : "optional ref"
-    DecisionRecord ||--o{ Alternative : contains
-    Intent ||--o{ BehaviorClause : contains
+    Constraint ||--o| Constraint : "superseded_by"
+    Constraint }o--|| Intent : "source_intent"
+    CodeBinding }o--|| Constraint : "bound_object"
+    CodeBinding }o--|| Intent : "bound_object"
+    AgentOperation }o--o{ Intent : "context_refs"
+    ChangeSet }o--o{ Intent : "intents"
+    ChangeSet }o--o{ Constraint : "constraints"
+    ChangeSet }o--o{ CodeBinding : "code_bindings"
 ```
 
 | Object | Description |
 |--------|-------------|
-| **Intent** | A unit of developer purpose — statement, constraints, behavioral expectations, and impact tags. Intents form a DAG via parent links. |
-| **DecisionRecord** | An architectural or implementation decision linked to an intent — captures the question, chosen option, rationale, and rejected alternatives. |
-| **BehaviorDiff** | A description of behavioral changes introduced by an intent — what changed, impact radius, and verification status. |
-| **IntentStream** | A named branch of intents (analogous to a Git branch). HEAD points to the current stream, which points to its tip intent. |
+| **Intent** | A unit of developer purpose — statement, constraints, behavioral expectations, and impact tags. Forms a DAG via parent links. |
+| **Constraint** | A first-class rule with lifecycle (Active → Superseded/Deprecated), severity (Must/Should/Prefer), and code scope. |
+| **DecisionRecord** | An architectural decision linked to an intent — question, chosen option, rationale, and rejected alternatives. |
+| **CodeBinding** | Links a Telos object to a code location (file, function, module, API, type). |
+| **AgentOperation** | Logs what an AI agent did — operation type, result, files touched, context references. |
+| **ChangeSet** | Bridges a Git commit to its Telos reasoning chain — intents, constraints, decisions, bindings, and agent ops. |
+| **BehaviorDiff** | Describes behavioral changes introduced by an intent — impact radius and verification status. |
+| **IntentStream** | A named branch of intents (analogous to a Git branch). |
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────┐
-│                  telos-cli                   │
-│  init · intent · decide · log · show        │
-│  query · context · stream                   │
-├─────────────────────────────────────────────┤
-│                 telos-store                  │
-│  ObjectDatabase · RefStore · Repository     │
-│  Query · Lockfile                           │
-├─────────────────────────────────────────────┤
-│                 telos-core                   │
-│  Intent · DecisionRecord · BehaviorDiff     │
-│  ObjectId (SHA-256) · Canonical Serialization│
-└─────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────┐
+│                    telos-cli                      │
+│  init · intent · decide · log · show · query     │
+│  context · stream · constraint · supersede       │
+│  deprecate · bind · check · agent-log · reindex  │
+├──────────────────────────────────────────────────┤
+│                   telos-store                     │
+│  ObjectDatabase · RefStore · IndexStore           │
+│  Repository · Query · Lockfile                   │
+├──────────────────────────────────────────────────┤
+│                   telos-core                      │
+│  Intent · Constraint · DecisionRecord            │
+│  CodeBinding · AgentOperation · ChangeSet        │
+│  BehaviorDiff · ObjectId (SHA-256)               │
+└──────────────────────────────────────────────────┘
 ```
 
-Telos uses a three-crate layered architecture:
-
-- **telos-core** — Domain types and content-addressable hashing. All objects are serialized to canonical JSON (sorted keys, no trailing whitespace) and hashed with SHA-256 to produce deterministic `ObjectId`s.
-- **telos-store** — Storage engine. Content-addressable object database with fan-out directories, mutable ref store for HEAD and stream pointers, query index, and lockfile-based atomic writes.
-- **telos-cli** — Command-line interface built with clap. Supports both human-readable and `--json` output.
+- **telos-core** — Domain types and content-addressable hashing. All objects are serialized to canonical JSON (sorted keys) and hashed with SHA-256.
+- **telos-store** — Storage engine: content-addressable object database (fan-out directories), mutable ref store, JSON-based query indexes (impact, code path, symbol), lockfile-based atomic writes.
+- **telos-cli** — Command-line interface (clap). All read commands support `--json` for agent consumption.
 
 ### `.telos/` directory layout
 
@@ -150,101 +159,93 @@ Telos uses a three-crate layered architecture:
 │   ├── a3/                       # Fan-out by first 2 hex chars
 │   │   └── f29c...(62 chars)    # Object file (canonical JSON)
 │   └── ...
-└── refs/
-    └── streams/
-        ├── main                  # Default stream
-        └── feature-auth          # User-created stream
+├── indexes/                      # Query acceleration (rebuildable)
+│   ├── impact.json              # impact_tag → [ObjectId]
+│   ├── codepath.json            # file_path → [ObjectId]
+│   └── symbols.json             # symbol_name → [ObjectId]
+├── refs/
+│   └── streams/
+│       ├── main                  # Default stream
+│       └── feature-auth          # User-created stream
+└── logs/
+    └── streams/                  # Stream operation logs
 ```
 
 ## CLI Reference
 
+### Core commands
+
 | Command | Synopsis | Description |
 |---------|----------|-------------|
-| `init` | `telos init` | Initialize a `.telos/` repository in the current directory |
-| `intent` | `telos intent -s <statement> [--constraint ...] [--impact ...] [--behavior ...]` | Create a new intent on the current stream |
-| `decide` | `telos decide --intent <id> --question <q> --decision <d> [--rationale ...] [--alternative ...] [--tag ...]` | Record a decision linked to an intent |
-| `log` | `telos log [-n <count>] [--json]` | Show intent history (most recent first) |
-| `show` | `telos show <id> [--json]` | Display any object by ID or prefix (minimum 4 chars) |
-| `query intents` | `telos query intents [--impact <area>] [--constraint-contains <text>] [--json]` | Find intents by impact area or constraint text |
-| `query decisions` | `telos query decisions [--intent <id>] [--tag <tag>] [--json]` | Find decisions by intent or tag |
-| `context` | `telos context --impact <area> [--json]` | Aggregate intents and linked decisions for an impact area |
-| `stream create` | `telos stream create <name>` | Create a new intent stream |
-| `stream list` | `telos stream list` | List all streams (current stream marked with `*`) |
-| `stream switch` | `telos stream switch <name>` | Switch HEAD to a different stream |
-| `stream delete` | `telos stream delete <name>` | Delete a stream (cannot delete the current stream) |
+| `init` | `telos init` | Initialize a `.telos/` repository |
+| `intent` | `telos intent -s <statement> [--constraint ...] [--impact ...] [--behavior ...]` | Create a new intent |
+| `decide` | `telos decide --intent <id> --question <q> --decision <d> [--rationale ...] [--tag ...]` | Record a decision |
+| `log` | `telos log [-n <count>] [--json]` | Show intent history |
+| `show` | `telos show <id> [--json]` | Display any object by ID or prefix |
+
+### Constraint lifecycle
+
+| Command | Synopsis | Description |
+|---------|----------|-------------|
+| `constraint` | `telos constraint -s <statement> --severity <must\|should\|prefer> [--impact ...]` | Create a standalone constraint |
+| `supersede` | `telos supersede <id> -s <new_statement> [--reason ...]` | Replace a constraint with a new version |
+| `deprecate` | `telos deprecate <id> --reason <reason>` | Deprecate a constraint |
+
+### Code bindings
+
+| Command | Synopsis | Description |
+|---------|----------|-------------|
+| `bind` | `telos bind <object_id> --file <path> [--symbol <name>] [--type <file\|function\|module\|api\|type>]` | Bind an object to a code location |
+| `check` | `telos check --bindings` | Validate that code bindings still resolve |
+
+### Queries
+
+| Command | Synopsis | Description |
+|---------|----------|-------------|
+| `query intents` | `telos query intents [--impact <area>] [--constraint-contains <text>] [--json]` | Find intents |
+| `query decisions` | `telos query decisions [--intent <id>] [--tag <tag>] [--json]` | Find decisions |
+| `query constraints` | `telos query constraints [--file <path>] [--symbol <name>] [--impact <area>] [--status <active\|superseded\|deprecated>] [--json]` | Find constraints (code-aware) |
+| `query agent-ops` | `telos query agent-ops [--agent <id>] [--session <id>] [--json]` | Find agent operations |
+| `context` | `telos context --impact <area> [--json]` | Aggregate intents + decisions for an impact area |
+
+### Agent operations
+
+| Command | Synopsis | Description |
+|---------|----------|-------------|
+| `agent-log` | `telos agent-log --agent <id> --session <id> --operation <type> --summary <text> [--file ...] [--context-ref ...]` | Log an agent operation |
+
+### Maintenance
+
+| Command | Synopsis | Description |
+|---------|----------|-------------|
+| `reindex` | `telos reindex` | Rebuild all query indexes from the object store |
+| `stream` | `telos stream create\|list\|switch\|delete <name>` | Manage intent streams |
 
 ## For AI Agents
 
-Telos is built to be consumed by LLM coding assistants. Every read command supports `--json` for structured output:
+Telos is built agent-first. Every read command supports `--json`:
 
 ```bash
+# Recover context at session start
 telos context --impact auth --json
+
+# Check constraints before modifying code
+telos query constraints --file src/auth/mod.rs --json
+
+# Log what you did
+telos agent-log \
+  --agent claude-review --session sess-042 \
+  --operation review \
+  --summary "Reviewed auth module for token expiry compliance" \
+  --file src/auth/token.rs
 ```
 
-```json
-{
-  "impact": "auth",
-  "intents": [
-    {
-      "intent_id": "a3f29c...",
-      "intent": {
-        "author": { "name": "Alice", "email": "alice@example.com" },
-        "statement": "Add user authentication with JWT tokens",
-        "constraints": ["Sessions must expire after 24 hours"],
-        "impacts": ["auth", "security"],
-        "behavior_spec": [
-          { "given": "a valid login", "when": "credentials are submitted", "then": "a JWT token is returned" }
-        ]
-      },
-      "decisions": [
-        {
-          "decision_id": "b7e41d...",
-          "decision": {
-            "question": "Which JWT library should we use?",
-            "decision": "Use jsonwebtoken crate",
-            "rationale": "Most popular, well-maintained, supports RS256",
-            "tags": ["architecture", "dependency"]
-          }
-        }
-      ]
-    }
-  ]
-}
-```
+**Agent workflow:**
 
-**How agents use Telos:**
-
-1. **Context recovery** — At the start of a session, run `telos context --impact <area> --json` to load relevant intents, constraints, and past decisions.
-2. **Constraint checking** — Before making changes, query `telos query intents --constraint-contains <keyword> --json` to find constraints that must be respected.
-3. **Decision logging** — After making an architectural choice, record it with `telos decide` so future sessions (human or AI) can recover the rationale.
-
-## Storage Model
-
-```mermaid
-graph TD
-    HEAD["HEAD (ref: refs/streams/main)"]
-    HEAD --> main["main stream"]
-    main --> C["Intent C"]
-    C --> B["Intent B"]
-    B --> A["Intent A (root)"]
-    C -.-> D1["DecisionRecord"]
-    B -.-> D2["DecisionRecord"]
-    A -.-> BD["BehaviorDiff"]
-
-    style HEAD fill:#f9f,stroke:#333
-    style main fill:#bbf,stroke:#333
-    style C fill:#bfb,stroke:#333
-    style B fill:#bfb,stroke:#333
-    style A fill:#bfb,stroke:#333
-```
-
-All objects are stored in a **content-addressable database**:
-
-- Each object is serialized to canonical JSON and hashed with SHA-256
-- Objects are stored using a **fan-out** scheme: `objects/a3/f29c...` (2-char prefix directory + 62-char filename)
-- Objects are **immutable** — once written, they never change
-- Writes are **atomic** — a lockfile mechanism ensures no partial writes on crash
-- Object IDs can be referenced by prefix (minimum 4 characters), automatically disambiguated
+1. **Context recovery** — `telos context --impact <area> --json` at session start
+2. **Constraint checking** — `telos query constraints --file <path> --json` before modifications
+3. **Decision logging** — `telos decide` after architectural choices
+4. **Operation logging** — `telos agent-log` to build persistent session history
 
 ## Testing
 
@@ -252,23 +253,22 @@ All objects are stored in a **content-addressable database**:
 cargo test
 ```
 
-59 tests across 3 crates:
+76 tests across 3 crates:
 
 | Crate | Unit Tests | Integration Tests |
 |-------|-----------|-------------------|
-| telos-core | 16 | — |
-| telos-store | 22 | — |
-| telos-cli | — | 21 |
-
-## Evaluation
-
-Telos includes a validation framework with 4 controlled experiments comparing a Git-only agent against a Telos+Git agent across context recovery, debugging, code review, and refactoring tasks. See [docs/EVALUATION.md](docs/EVALUATION.md) for the full methodology, scoring rubric, and results.
+| telos-core | 20 | — |
+| telos-store | 25 | — |
+| telos-cli | — | 31 |
 
 ## Roadmap
 
-- **Phase 1** (complete): Core data model, content-addressable storage engine, CLI, query system, `--json` output, `context` command
-- **Phase 2** (planned): Behavior verification, conflict detection between streams, constraint validation
-- **Phase 3** (planned): Git integration, pre-commit hooks, IDE extensions
+- **Phase 1** (complete): Core data model, content-addressable storage, CLI, query system, `--json` output, `context` command
+- **Phase 2** (complete): Constraint lifecycle (supersede/deprecate), code bindings, agent operation logging, IndexStore, code-aware queries
+- **Phase 3** (planned): Agent memory SDK (`telos-agent` crate), semantic search, embedding store
+- **Phase 4** (planned): Deep Git integration (hooks, commit metadata), code graph (`telos-codegraph` with tree-sitter)
+
+See [docs/TELOS_V2_DESIGN.md](docs/TELOS_V2_DESIGN.md) for the full v2 design document.
 
 ## Contributing
 
