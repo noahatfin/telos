@@ -34,13 +34,13 @@ Telos v1 demonstrated a plausible concept: structured, queryable intent data can
 
 Telos v2 is not an incremental fix. It is a concept reshaping built on three pivots:
 
-1. **Code review tool → Agent persistent memory.** Telos v1 positioned itself as a code review enhancement. v2 recognizes that code review is one application of a broader capability: giving AI agents a structured, queryable memory layer that persists across sessions, agents, and time. Constraints, decisions, and intents are the vocabulary; memory is the mission.
+1. **Code review tool → Agent persistent memory.** Telos v1 positioned itself as a code review enhancement. v2 recognizes that code review is one application of a broader capability: giving AI agents a structured, queryable memory layer that persists across sessions, agents, and time. Constraints, decisions, and intents are the vocabulary; memory is the mission. **Telos is agent-first** — every design decision prioritizes AI agent consumption; human usability follows.
 
-2. **Git companion → Next-generation version control.** Telos v1 sat alongside Git as a metadata sidecar. v2 designs toward a unified commit model where code changes, intent, constraints, and decisions are captured in a single atomic operation — the `ChangeSet`. The long-term trajectory is a version control system that tracks *why* with the same rigor Git tracks *what*.
+2. **Git sidecar → Deep Git integration layer.** Telos v1 sat alongside Git with zero actual integration. v2 builds a deep integration layer — hooks, commit metadata, bidirectional linking — that makes Telos the *intent and constraint layer on top of Git*. Git remains the source of truth for code; Telos is the source of truth for *why*. Telos will never replace Git. Git is infrastructure; Telos is the semantic layer that Git lacks.
 
 3. **Immutable-and-forget → Constraint lifecycle.** Telos v1's immutability was celebrated as architectural soundness but created a staleness liability: constraints that reference deleted modules carry the same authority as current ones. v2 introduces first-class constraint lifecycle management — constraints are born, superseded, and deprecated without breaking the immutable object graph.
 
-**The unified commit concept:** A `ChangeSet` bundles a tree diff (code changes), the intents that motivated them, the constraints they must respect, the decisions they embody, and the code locations they bind to — all as a single, content-addressable, atomically committed unit. An agent reviewing a change sees not just what changed but the full reasoning chain, in one query.
+**The ChangeSet concept:** A `ChangeSet` is a Telos-side object that links a Git commit to the intents that motivated it, the constraints it must respect, the decisions it embodies, and the code locations it binds to. Git tracks the code diff; the ChangeSet tracks the reasoning chain. An agent reviewing a change queries the ChangeSet to see not just what changed but the full *why*, in one query.
 
 ---
 
@@ -102,23 +102,23 @@ A function `validate_token()` in `src/auth/mod.rs` is refactored and renamed to 
 
 ### 3.1 One-Sentence Thesis
 
-**Telos is a structured, queryable memory layer for software development — capturing intent, constraints, decisions, and agent operations as content-addressable objects with code-level bindings, enabling AI agents to reason about *why* code exists with the same precision they reason about *what* code does.**
+**Telos is an agent-first memory layer for software development that sits on top of Git — capturing intent, constraints, decisions, and agent operations as content-addressable objects with code-level bindings, enabling AI agents to reason about *why* code exists with the same precision they reason about *what* code does.**
 
-### 3.2 Unified Commit Model Preview
+### 3.2 ChangeSet Model Preview
 
-The long-term target is the `ChangeSet` — a single atomic unit that captures:
+The `ChangeSet` is a Telos-side object that links a Git commit to its full reasoning chain:
 
 ```
-ChangeSet = TreeDiff + Intents + Constraints + Decisions + CodeBindings + AgentOperations
+ChangeSet = GitCommitRef + Intents + Constraints + Decisions + CodeBindings + AgentOperations
 ```
 
-In the near term (Phases A-B), Telos coexists with Git. In the long term (Phase C), the `ChangeSet` replaces both the Git commit and the Telos intent as the fundamental unit of change.
+Git owns the code diff. Telos owns the intent. The ChangeSet is the bridge — it answers "for this Git commit, what was the reasoning, what constraints apply, and what did agents do?"
 
 ### 3.3 Differentiation Table
 
 | Capability | Git | ADRs | CONSTRAINTS.md | Telos v2 |
 |------------|-----|------|----------------|----------|
-| Track code changes | Yes | No | No | Yes (ChangeSet) |
+| Track code changes | Yes | No | No | No (delegates to Git) |
 | Track intent/rationale | Commit message (free text) | Yes (prose) | No | Yes (structured) |
 | Track constraints | No | Sometimes | Yes (prose) | Yes (structured, scoped, versioned) |
 | Track decisions | No | Yes (prose) | No | Yes (structured, linked) |
@@ -179,11 +179,12 @@ The expanded hypothesis would be disproven if:
 
 ```mermaid
 erDiagram
-    ChangeSet ||--o{ Intent : contains
-    ChangeSet ||--o{ Constraint : contains
-    ChangeSet ||--o{ DecisionRecord : contains
-    ChangeSet ||--o{ CodeBinding : contains
-    ChangeSet ||--o{ AgentOperation : contains
+    ChangeSet ||--|| GitCommit : "links to (git_commit SHA)"
+    ChangeSet ||--o{ Intent : references
+    ChangeSet ||--o{ Constraint : references
+    ChangeSet ||--o{ DecisionRecord : references
+    ChangeSet ||--o{ CodeBinding : references
+    ChangeSet ||--o{ AgentOperation : references
 
     Intent ||--o{ Constraint : "references (by ObjectId)"
     Intent ||--o{ CodeBinding : "bound to"
@@ -495,43 +496,19 @@ pub struct AgentOperation {
 
 #### ChangeSet
 
-The unified commit — the long-term replacement for both Git commits and Telos intents. Bundles code changes with their full reasoning chain.
+The bridge between Git and Telos — a Telos-side object that links a Git commit to its full reasoning chain. Git owns the code diff; the ChangeSet captures everything else.
 
 ```rust
-pub struct TreeDiff {
-    /// Files added, modified, or deleted.
-    pub files: Vec<FileDiff>,
-}
-
-pub struct FileDiff {
-    pub path: String,
-    pub change_type: FileChangeType,
-    /// Content hash before change (None for new files).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub before: Option<String>,
-    /// Content hash after change (None for deleted files).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub after: Option<String>,
-}
-
-pub enum FileChangeType {
-    Added,
-    Modified,
-    Deleted,
-    Renamed { from: String },
-}
-
 pub struct ChangeSet {
     pub author: Author,
     pub timestamp: DateTime<Utc>,
-    pub message: String,
 
-    /// Parent changeset(s) — forms DAG like Git commits.
+    /// The Git commit SHA this ChangeSet is linked to.
+    pub git_commit: String,
+
+    /// Parent changeset(s) — mirrors the Git commit DAG.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub parents: Vec<ObjectId>,
-
-    /// Code changes (tree diff).
-    pub tree_diff: TreeDiff,
 
     /// Intents that motivated this change.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -561,7 +538,7 @@ pub struct ChangeSet {
 ```mermaid
 graph TB
     CS[ChangeSet]
-    TD[TreeDiff<br/>src/auth/mod.rs modified<br/>src/auth/token.rs added]
+    GC[Git Commit<br/>a1b2c3d<br/>src/auth/mod.rs modified<br/>src/auth/token.rs added]
     I1[Intent<br/>"Add token rotation"]
     C1[Constraint<br/>"Tokens must expire within 1h"<br/>Must / Active]
     C2[Constraint<br/>"Rotation must not cause downtime"<br/>Should / Active]
@@ -570,7 +547,7 @@ graph TB
     CB2[CodeBinding<br/>src/auth/token.rs:Token]
     AO[AgentOperation<br/>claude-code reviewed changes]
 
-    CS --> TD
+    CS -->|git_commit| GC
     CS --> I1
     CS --> C1
     CS --> C2
@@ -583,11 +560,9 @@ graph TB
     I1 -.-> C2
     D1 -.-> I1
     C1 -.-> CB1
-    CB1 -.-> TD
-    CB2 -.-> TD
 
     style CS fill:#f9f,stroke:#333,stroke-width:2px
-    style TD fill:#fbb,stroke:#333
+    style GC fill:#fbb,stroke:#333
     style I1 fill:#bfb,stroke:#333
     style C1 fill:#bbf,stroke:#333
     style C2 fill:#bbf,stroke:#333
@@ -651,7 +626,7 @@ pub struct SymbolRef {
 | Constraint | `constraint` | No | New |
 | CodeBinding | `code_binding` | No | New |
 | AgentOperation | `agent_operation` | No | New |
-| ChangeSet | `change_set` | No | New |
+| ChangeSet | `change_set` | No | New (Phase 4) |
 | SemanticNode | `semantic_node` | No | New (Phase 3) |
 
 ---
@@ -1145,7 +1120,7 @@ The migration command:
 
 ### 11.1 Three Modes
 
-The v1 CLI required explicit flags for every operation — a tax that the Practitioner critique ([P1]) correctly identified as an adoption barrier. v2 introduces three modes:
+The v1 CLI required explicit flags for every operation — a tax that the Practitioner critique ([P1]) correctly identified as an adoption barrier. v2 introduces three modes, **prioritizing agent automation**:
 
 **1. Explicit mode (retained, for CI/automation):**
 ```bash
@@ -1239,19 +1214,19 @@ Indexes rebuilt in 340ms
 
 ## 12. Git Integration Path
 
-### 12.1 Three Phases
+**Design principle:** Telos is permanently a layer on top of Git, not a replacement. Git is battle-tested infrastructure for tracking code changes. Telos adds the semantic layer Git lacks — intent, constraints, decisions, agent operations — without duplicating what Git already does well.
+
+### 12.1 Two Phases
 
 ```mermaid
 graph LR
     A["Phase A<br/>Coexistence<br/>.telos alongside .git"]
-    B["Phase B<br/>Deep Integration<br/>hooks, commit metadata"]
-    C["Phase C<br/>Unified VCS<br/>single system"]
+    B["Phase B<br/>Deep Integration<br/>hooks, commit metadata,<br/>bidirectional linking"]
 
-    A --> B --> C
+    A --> B
 
     style A fill:#bfb,stroke:#333
     style B fill:#bbf,stroke:#333
-    style C fill:#fbf,stroke:#333
 ```
 
 ### 12.2 Phase A: Coexistence (Current → Phase 1-2)
@@ -1270,7 +1245,7 @@ graph LR
 
 ### 12.3 Phase B: Deep Integration (Phase 2-3)
 
-Git hooks and commit metadata create a bidirectional link between Git and Telos.
+Git hooks and commit metadata create a bidirectional link between Git and Telos. This is the target architecture — Telos as a fully integrated semantic layer on top of Git.
 
 **Pre-commit hook:**
 ```bash
@@ -1284,10 +1259,10 @@ telos check --constraints --staged
 # .git/hooks/post-commit
 COMMIT_SHA=$(git rev-parse HEAD)
 telos link-commit $COMMIT_SHA
-# Associates the Git commit with the current Telos intent stream tip
+# Creates a ChangeSet linking the Git commit to current Telos intent stream tip
 ```
 
-**Commit metadata:**
+**Commit metadata (Git trailer convention):**
 ```
 commit a1b2c3d4e5f6...
 Author: Alice <alice@example.com>
@@ -1308,21 +1283,30 @@ telos log --git
 #   Decision: d1e2f3 ("Use sliding window rotation")
 ```
 
-### 12.4 Phase C: Unified VCS (Phase 4+)
+**Agent workflow (the primary use case):**
+```bash
+# Agent starts a session
+telos agent-log --agent claude-code --session $SESSION --operation query \
+  --summary "Loading context for auth module"
 
-The `ChangeSet` replaces both Git commits and Telos intents as the fundamental unit of change. A single system tracks code changes *and* their reasoning chain.
+# Agent queries constraints before making changes
+telos query constraints --file src/auth/mod.rs --json
 
-**What changes:**
-- `telos commit` replaces both `git commit` and `telos intent`
-- The object store holds both code blobs and intent objects
-- Branching, merging, and history traversal operate on ChangeSets
-- The tree diff, intent, constraints, decisions, and bindings are a single atomic unit
+# Agent makes changes, Git tracks the diff
+git add src/auth/mod.rs && git commit -m "Rotate tokens on expiry"
 
-**Migration strategy:**
-- Existing Git history is importable: each Git commit becomes a ChangeSet with only a TreeDiff and message
-- Existing Telos history is importable: each Intent becomes a ChangeSet with only intents and constraints
-- Full ChangeSets are created going forward
-- Git interop layer allows pushing/pulling to Git remotes (exports TreeDiff as Git commit, drops intent metadata)
+# Post-commit hook automatically creates ChangeSet linking Git commit to Telos state
+```
+
+### 12.4 Why Not Replace Git?
+
+Git provides:
+- **Distributed code storage** — proven at massive scale (Linux kernel, monorepos)
+- **Branching/merging** — decades of tooling, IDE support, CI/CD integration
+- **Ecosystem** — GitHub/GitLab, code review, deployment pipelines
+- **Network effects** — every developer knows Git
+
+Telos would gain nothing by reimplementing these. What Git *lacks* — structured intent, queryable constraints, agent memory, code-level semantic bindings — is exactly what Telos provides. The two systems are complementary, not competitive. Git is the storage layer; Telos is the semantic layer.
 
 ---
 
@@ -1584,18 +1568,19 @@ Every criticism from the dialectical review is mapped to its v2 resolution:
 
 **Deliverable:** Telos supports all three query types and has validated its hypotheses with rigorous experiments.
 
-### Phase 4: Unified VCS Prototype (12+ weeks)
+### Phase 4: Deep Git Integration + Agent SDK (8-12 weeks)
 
-**Goal:** Prototype the `ChangeSet` as a unified commit model.
+**Goal:** Make Telos a seamlessly integrated Git layer with a first-class agent SDK.
 
-- [ ] `ChangeSet` type in telos-core
-- [ ] `TreeDiff` storage (code blob tracking)
-- [ ] `telos commit` command (creates ChangeSet from staged changes + intent)
-- [ ] Git interop layer (export ChangeSet as Git commit, import Git commit as ChangeSet)
-- [ ] Phase B Git integration (hooks, commit metadata)
+- [ ] `ChangeSet` type in telos-core (links Git commits to Telos reasoning chain)
+- [ ] Phase B Git integration (pre-commit hook, post-commit hook, commit metadata trailers)
+- [ ] `telos link-commit` command (creates ChangeSet from Git commit + current Telos state)
+- [ ] `telos log --git` (interleaved Git + Telos history)
+- [ ] Agent SDK: programmatic API for agent frameworks (not just CLI)
+- [ ] MCP (Model Context Protocol) server for Telos queries
 - [ ] Performance benchmarking at scale (1000+ objects)
 
-**Deliverable:** Working prototype of Telos as a standalone VCS, with Git interop for migration.
+**Deliverable:** Telos as a fully integrated semantic layer on Git, with native agent framework support.
 
 ---
 
@@ -1642,7 +1627,7 @@ See [docs/REVIEW.md](REVIEW.md) for the full four-agent dialectical review. Key 
 
 | Term | Definition |
 |------|-----------|
-| **ChangeSet** | The v2 unified commit: bundles code changes (TreeDiff) with intents, constraints, decisions, code bindings, and agent operations into a single atomic unit. |
+| **ChangeSet** | A Telos-side object that links a Git commit to its reasoning chain: intents, constraints, decisions, code bindings, and agent operations. Git owns the code diff; the ChangeSet owns the *why*. |
 | **Code Binding** | A typed link between a Telos object and a code location (file, function, module, API endpoint, type). |
 | **Constraint** | A first-class object representing a rule the codebase must respect. Has lifecycle (Active/Superseded/Deprecated), severity (Must/Should/Prefer), and scope (code bindings). |
 | **Content-addressable** | Storage where each object's identifier is derived from its content (SHA-256 hash). Identical content always produces the same ID. |
@@ -1656,4 +1641,3 @@ See [docs/REVIEW.md](REVIEW.md) for the full four-agent dialectical review. Key 
 | **ObjectId** | A 64-character hex string representing the SHA-256 hash of an object's canonical serialization. |
 | **Semantic node** | A symbol in the code graph (function, type, module) with its dependencies. Used for code-aware queries. |
 | **Supersede** | Replace a constraint with a newer version. The old constraint is marked Superseded and links to its replacement. |
-| **TreeDiff** | A description of code changes in a ChangeSet — files added, modified, deleted, or renamed. |
