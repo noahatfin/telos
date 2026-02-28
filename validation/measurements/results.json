@@ -1,0 +1,73 @@
+{
+  "experiment_a_memory": {
+    "status": "pending",
+    "git_only": {
+      "completeness": null,
+      "constraint_recall": null,
+      "decision_recall": null,
+      "overall": null,
+      "tokens_used": null
+    },
+    "telos_git": {
+      "completeness": null,
+      "constraint_recall": null,
+      "decision_recall": null,
+      "overall": null,
+      "tokens_used": null
+    },
+    "delta": null,
+    "pass": null
+  },
+  "experiment_b_debugging": {
+    "status": "pending",
+    "git_only": {
+      "found_root_cause": null,
+      "suggested_correct_fix": null,
+      "referenced_constraint": null,
+      "referenced_behavior_spec": null,
+      "commands_to_root_cause": null
+    },
+    "telos_git": {
+      "found_root_cause": null,
+      "suggested_correct_fix": null,
+      "referenced_constraint": null,
+      "referenced_behavior_spec": null,
+      "commands_to_root_cause": null
+    },
+    "pass": null
+  },
+  "experiment_c_review": {
+    "status": "pending",
+    "git_only": {
+      "caught_violation": null,
+      "cited_specific_constraint": null,
+      "recommended_rejection": null,
+      "identified_security_risk": null
+    },
+    "telos_git": {
+      "caught_violation": null,
+      "cited_specific_constraint": null,
+      "recommended_rejection": null,
+      "identified_security_risk": null
+    },
+    "pass": null
+  },
+  "experiment_d_refactor": {
+    "status": "pending",
+    "git_only": {
+      "completeness_score": null,
+      "identified_cross_module": null,
+      "mentioned_auth_rbac_link": null
+    },
+    "telos_git": {
+      "completeness_score": null,
+      "identified_cross_module": null,
+      "mentioned_auth_rbac_link": null
+    },
+    "pass": null
+  },
+  "summary": {
+    "experiments_passed": null,
+    "overall_verdict": null
+  }
+}

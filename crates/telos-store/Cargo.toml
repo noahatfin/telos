@@ -1,0 +1,12 @@
+[package]
+name = "telos-store"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+telos-core = { path = "../telos-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+tempfile = { workspace = true }
