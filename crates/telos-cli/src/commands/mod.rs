@@ -1,8 +1,15 @@
+pub mod agent_log;
+pub mod bind;
+pub mod check;
+pub mod constraint;
 pub mod context;
 pub mod decide;
+pub mod deprecate;
 pub mod init;
 pub mod intent;
 pub mod log;
 pub mod query;
+pub mod reindex;
 pub mod show;
 pub mod stream;
+pub mod supersede;

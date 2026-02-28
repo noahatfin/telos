@@ -648,3 +648,524 @@ fn context_no_results() {
         .success()
         .stdout(predicates::str::contains("No intents found"));
 }
+
+// ========== v2 Integration Tests ==========
+
+#[test]
+fn constraint_create_and_query() {
+    let dir = TempDir::new().unwrap();
+    telos().arg("init").current_dir(dir.path()).assert().success();
+
+    // Create an intent first (needed for source_intent)
+    telos()
+        .args(["intent", "-s", "Auth system", "--impact", "auth"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    // Create a constraint
+    telos()
+        .args([
+            "constraint",
+            "-s", "All API endpoints must use HTTPS",
+            "--severity", "must",
+            "--impact", "security",
+            "--impact", "auth",
+        ])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Created constraint"));
+
+    // Query constraints
+    let output = telos()
+        .args(["query", "constraints", "--impact", "security", "--json"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["object"]["statement"], "All API endpoints must use HTTPS");
+    assert_eq!(arr[0]["object"]["severity"], "must");
+    assert_eq!(arr[0]["object"]["status"], "active");
+}
+
+#[test]
+fn constraint_supersede() {
+    let dir = TempDir::new().unwrap();
+    telos().arg("init").current_dir(dir.path()).assert().success();
+
+    telos()
+        .args(["intent", "-s", "Security policy", "--impact", "security"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    // Create original constraint
+    let output = telos()
+        .args([
+            "constraint",
+            "-s", "Passwords must be >= 8 chars",
+            "--severity", "must",
+            "--impact", "security",
+        ])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let constraint_hash = stdout.trim().split_whitespace().last().unwrap().to_string();
+
+    // Supersede it
+    telos()
+        .args([
+            "supersede",
+            &constraint_hash,
+            "-s", "Passwords must be >= 12 chars",
+            "--severity", "must",
+            "--reason", "Updated security policy requires longer passwords",
+        ])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Superseded"));
+
+    // Query active constraints — should show the new one, not the old
+    let output = telos()
+        .args(["query", "constraints", "--impact", "security", "--json"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+
+    // Should have the new active constraint
+    let stmts: Vec<&str> = arr
+        .iter()
+        .map(|e| e["object"]["statement"].as_str().unwrap())
+        .collect();
+    assert!(stmts.contains(&"Passwords must be >= 12 chars"));
+
+    // Query superseded — should show the old one
+    let output = telos()
+        .args(["query", "constraints", "--status", "superseded", "--json"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert!(!arr.is_empty());
+    let old_stmts: Vec<&str> = arr
+        .iter()
+        .map(|e| e["object"]["statement"].as_str().unwrap())
+        .collect();
+    assert!(old_stmts.contains(&"Passwords must be >= 8 chars"));
+}
+
+#[test]
+fn constraint_deprecate() {
+    let dir = TempDir::new().unwrap();
+    telos().arg("init").current_dir(dir.path()).assert().success();
+
+    telos()
+        .args(["intent", "-s", "Legacy feature"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    let output = telos()
+        .args([
+            "constraint",
+            "-s", "Must support IE11",
+            "--severity", "must",
+        ])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let constraint_hash = stdout.trim().split_whitespace().last().unwrap().to_string();
+
+    // Deprecate
+    telos()
+        .args([
+            "deprecate",
+            &constraint_hash,
+            "--reason", "IE11 is end of life",
+        ])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Deprecated constraint"));
+
+    // Query deprecated
+    let output = telos()
+        .args(["query", "constraints", "--status", "deprecated", "--json"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert!(!arr.is_empty());
+    assert_eq!(arr[0]["object"]["status"], "deprecated");
+}
+
+#[test]
+fn code_binding_create_and_show() {
+    let dir = TempDir::new().unwrap();
+    telos().arg("init").current_dir(dir.path()).assert().success();
+
+    // Create an intent to bind to
+    let output = telos()
+        .args(["intent", "-s", "Auth module", "--impact", "auth"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let intent_hash = stdout.trim().split_whitespace().last().unwrap().to_string();
+
+    // Create a code binding — output is "Created binding XXXX for object YYYY"
+    let output = telos()
+        .args([
+            "bind",
+            &intent_hash,
+            "--file", "src/auth/mod.rs",
+            "--symbol", "validate_token",
+            "--type", "function",
+        ])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("Created binding"));
+    // Extract binding hash (3rd word: "Created binding XXXX ...")
+    let binding_hash = stdout.trim().split_whitespace().nth(2).unwrap().to_string();
+
+    telos()
+        .args(["show", &binding_hash])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("code_binding"))
+        .stdout(predicates::str::contains("src/auth/mod.rs"))
+        .stdout(predicates::str::contains("validate_token"));
+}
+
+#[test]
+fn agent_log_create_and_query() {
+    let dir = TempDir::new().unwrap();
+    telos().arg("init").current_dir(dir.path()).assert().success();
+
+    // Log an agent operation
+    telos()
+        .args([
+            "agent-log",
+            "--agent", "claude-review",
+            "--session", "sess-001",
+            "--operation", "review",
+            "--summary", "Reviewed auth module for security issues",
+            "--file", "src/auth/mod.rs",
+            "--file", "src/auth/token.rs",
+        ])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Logged agent operation"));
+
+    // Log another with different agent
+    telos()
+        .args([
+            "agent-log",
+            "--agent", "copilot-gen",
+            "--session", "sess-002",
+            "--operation", "generate",
+            "--summary", "Generated test cases",
+        ])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    // Query by agent
+    let output = telos()
+        .args(["query", "agent-ops", "--agent", "claude-review", "--json"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["object"]["agent_id"], "claude-review");
+    assert_eq!(arr[0]["object"]["summary"], "Reviewed auth module for security issues");
+}
+
+#[test]
+fn reindex_rebuilds_indexes() {
+    let dir = TempDir::new().unwrap();
+    telos().arg("init").current_dir(dir.path()).assert().success();
+
+    // Create some objects
+    telos()
+        .args(["intent", "-s", "Auth system", "--impact", "auth"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    telos()
+        .args(["constraint", "-s", "Must use HTTPS", "--impact", "security"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    // Delete indexes to simulate corruption
+    std::fs::remove_dir_all(dir.path().join(".telos/indexes")).unwrap();
+
+    // Reindex
+    telos()
+        .args(["reindex"])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Rebuilding indexes"))
+        .stdout(predicates::str::contains("Done"));
+
+    // Verify indexes are back
+    assert!(dir.path().join(".telos/indexes").exists());
+}
+
+#[test]
+fn check_bindings() {
+    let dir = TempDir::new().unwrap();
+    telos().arg("init").current_dir(dir.path()).assert().success();
+
+    let output = telos()
+        .args(["intent", "-s", "Test binding check"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let intent_hash = stdout.trim().split_whitespace().last().unwrap().to_string();
+
+    // Bind to a file that doesn't exist
+    telos()
+        .args([
+            "bind", &intent_hash,
+            "--file", "src/nonexistent.rs",
+            "--type", "file",
+        ])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    // Check bindings — should report unresolved
+    telos()
+        .args(["check", "--bindings"])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("UNRESOLVED"));
+}
+
+#[test]
+fn show_constraint_details() {
+    let dir = TempDir::new().unwrap();
+    telos().arg("init").current_dir(dir.path()).assert().success();
+
+    telos()
+        .args(["intent", "-s", "Security policy", "--impact", "security"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    let output = telos()
+        .args([
+            "constraint",
+            "-s", "All endpoints require authentication",
+            "--severity", "must",
+            "--impact", "security",
+            "--impact", "auth",
+        ])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let constraint_hash = stdout.trim().split_whitespace().last().unwrap().to_string();
+
+    // Show constraint
+    telos()
+        .args(["show", &constraint_hash])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("constraint"))
+        .stdout(predicates::str::contains("All endpoints require authentication"))
+        .stdout(predicates::str::contains("Must"))
+        .stdout(predicates::str::contains("Active"))
+        .stdout(predicates::str::contains("security, auth"));
+}
+
+#[test]
+fn show_agent_operation_details() {
+    let dir = TempDir::new().unwrap();
+    telos().arg("init").current_dir(dir.path()).assert().success();
+
+    let output = telos()
+        .args([
+            "agent-log",
+            "--agent", "claude-review",
+            "--session", "s1",
+            "--operation", "review",
+            "--summary", "Full security audit",
+            "--file", "src/main.rs",
+        ])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let op_hash = stdout.trim().split_whitespace().last().unwrap().to_string();
+
+    telos()
+        .args(["show", &op_hash])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("agent_operation"))
+        .stdout(predicates::str::contains("claude-review"))
+        .stdout(predicates::str::contains("Full security audit"))
+        .stdout(predicates::str::contains("src/main.rs"));
+}
+
+#[test]
+fn full_v2_workflow() {
+    let dir = TempDir::new().unwrap();
+    telos().arg("init").current_dir(dir.path()).assert().success();
+
+    // 1. Create an intent
+    let output = telos()
+        .args([
+            "intent",
+            "-s", "Implement user authentication",
+            "--impact", "auth",
+            "--impact", "security",
+            "--constraint", "Must support OAuth2",
+        ])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let intent_hash = stdout.trim().split_whitespace().last().unwrap().to_string();
+
+    // 2. Create standalone constraints
+    telos()
+        .args([
+            "constraint",
+            "-s", "Token expiry must be <= 1 hour",
+            "--severity", "must",
+            "--impact", "auth",
+        ])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    telos()
+        .args([
+            "constraint",
+            "-s", "Prefer bcrypt for password hashing",
+            "--severity", "prefer",
+            "--impact", "security",
+        ])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    // 3. Make a decision
+    telos()
+        .args([
+            "decide",
+            "--intent", &intent_hash,
+            "--question", "Which OAuth2 library?",
+            "--decision", "Use passport.js",
+            "--tag", "auth",
+        ])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    // 4. Create code bindings
+    telos()
+        .args([
+            "bind", &intent_hash,
+            "--file", "src/auth/mod.rs",
+            "--type", "module",
+        ])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    telos()
+        .args([
+            "bind", &intent_hash,
+            "--file", "src/auth/oauth.rs",
+            "--symbol", "handle_callback",
+            "--type", "function",
+        ])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    // 5. Log agent operations
+    telos()
+        .args([
+            "agent-log",
+            "--agent", "claude-review",
+            "--session", "review-001",
+            "--operation", "review",
+            "--summary", "Reviewed OAuth2 implementation",
+            "--file", "src/auth/oauth.rs",
+        ])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    // 6. Query constraints by impact
+    let output = telos()
+        .args(["query", "constraints", "--impact", "auth", "--json"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(parsed.as_array().unwrap().len(), 1); // Token expiry
+
+    // 7. Query agent ops
+    let output = telos()
+        .args(["query", "agent-ops", "--agent", "claude-review", "--json"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(parsed.as_array().unwrap().len(), 1);
+
+    // 8. Reindex
+    telos()
+        .args(["reindex"])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Done"));
+
+    // 9. Context should aggregate everything for auth
+    let output = telos()
+        .args(["context", "--impact", "auth", "--json"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(parsed["impact"], "auth");
+    assert!(!parsed["intents"].as_array().unwrap().is_empty());
+}

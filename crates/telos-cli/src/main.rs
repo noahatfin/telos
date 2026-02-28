@@ -95,6 +95,112 @@ enum Commands {
         #[arg(long)]
         impact: String,
     },
+
+    /// Create a standalone constraint
+    Constraint {
+        /// Constraint statement
+        #[arg(short, long)]
+        statement: String,
+
+        /// Severity level (must, should, prefer)
+        #[arg(long, default_value = "should")]
+        severity: String,
+
+        /// Impact area tags (repeatable)
+        #[arg(long)]
+        impact: Vec<String>,
+
+        /// Scope file paths (repeatable)
+        #[arg(long)]
+        scope: Vec<String>,
+    },
+
+    /// Supersede an existing constraint
+    Supersede {
+        /// Constraint ID to supersede
+        id: String,
+
+        /// New constraint statement
+        #[arg(short, long)]
+        statement: String,
+
+        /// Severity level (must, should, prefer)
+        #[arg(long, default_value = "should")]
+        severity: String,
+
+        /// Reason for superseding
+        #[arg(long)]
+        reason: Option<String>,
+    },
+
+    /// Deprecate a constraint
+    Deprecate {
+        /// Constraint ID to deprecate
+        id: String,
+
+        /// Reason for deprecation
+        #[arg(long)]
+        reason: String,
+    },
+
+    /// Create a code binding
+    Bind {
+        /// Object ID to bind
+        id: String,
+
+        /// File path to bind to
+        #[arg(long)]
+        file: String,
+
+        /// Symbol name (function, type, etc.)
+        #[arg(long)]
+        symbol: Option<String>,
+
+        /// Binding type (file, function, module, api, type)
+        #[arg(long, default_value = "file")]
+        r#type: String,
+    },
+
+    /// Validate bindings and constraints against code
+    Check {
+        /// Check code bindings
+        #[arg(long)]
+        bindings: bool,
+
+        /// Run all checks
+        #[arg(long)]
+        all: bool,
+    },
+
+    /// Log an agent operation
+    AgentLog {
+        /// Agent identifier
+        #[arg(long)]
+        agent: String,
+
+        /// Session identifier
+        #[arg(long)]
+        session: String,
+
+        /// Operation type (review, generate, decide, query, violation, or custom)
+        #[arg(long)]
+        operation: String,
+
+        /// Summary of the operation
+        #[arg(long)]
+        summary: String,
+
+        /// Context object references (repeatable)
+        #[arg(long)]
+        context_ref: Vec<String>,
+
+        /// Files touched (repeatable)
+        #[arg(long)]
+        file: Vec<String>,
+    },
+
+    /// Rebuild all indexes
+    Reindex,
 }
 
 #[derive(Subcommand)]
@@ -118,6 +224,34 @@ enum QueryAction {
         /// Filter by tag
         #[arg(long)]
         tag: Option<String>,
+    },
+    /// Query constraints
+    Constraints {
+        /// Filter by file path
+        #[arg(long)]
+        file: Option<String>,
+
+        /// Filter by symbol name
+        #[arg(long)]
+        symbol: Option<String>,
+
+        /// Filter by impact area
+        #[arg(long)]
+        impact: Option<String>,
+
+        /// Filter by status (active, superseded, deprecated)
+        #[arg(long, default_value = "active")]
+        status: String,
+    },
+    /// Query agent operations
+    AgentOps {
+        /// Filter by agent identifier
+        #[arg(long)]
+        agent: Option<String>,
+
+        /// Filter by session identifier
+        #[arg(long)]
+        session: Option<String>,
     },
 }
 
@@ -177,8 +311,46 @@ fn main() {
             QueryAction::Decisions { intent, tag } => {
                 commands::query::decisions(intent, tag, cli.json)
             }
+            QueryAction::Constraints {
+                file,
+                symbol,
+                impact,
+                status,
+            } => commands::query::constraints(file, symbol, impact, status, cli.json),
+            QueryAction::AgentOps { agent, session } => {
+                commands::query::agent_ops(agent, session, cli.json)
+            }
         },
         Commands::Context { impact } => commands::context::run(impact, cli.json),
+        Commands::Constraint {
+            statement,
+            severity,
+            impact,
+            scope,
+        } => commands::constraint::run(statement, severity, impact, scope),
+        Commands::Supersede {
+            id,
+            statement,
+            severity,
+            reason,
+        } => commands::supersede::run(id, statement, severity, reason),
+        Commands::Deprecate { id, reason } => commands::deprecate::run(id, reason),
+        Commands::Bind {
+            id,
+            file,
+            symbol,
+            r#type,
+        } => commands::bind::run(id, file, symbol, r#type),
+        Commands::Check { bindings, all } => commands::check::run(bindings, all),
+        Commands::AgentLog {
+            agent,
+            session,
+            operation,
+            summary,
+            context_ref,
+            file,
+        } => commands::agent_log::run(agent, session, operation, summary, context_ref, file),
+        Commands::Reindex => commands::reindex::run(),
     };
 
     if let Err(e) = result {

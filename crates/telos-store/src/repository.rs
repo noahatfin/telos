@@ -1,4 +1,5 @@
 use crate::error::StoreError;
+use crate::index_store::IndexStore;
 use crate::odb::ObjectDatabase;
 use crate::refs::RefStore;
 use chrono::Utc;
@@ -7,7 +8,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use telos_core::hash::ObjectId;
 use telos_core::object::intent_stream::IntentStreamRef;
-use telos_core::object::{DecisionRecord, Intent, TelosObject};
+use telos_core::object::{
+    AgentOperation, ChangeSet, CodeBinding, Constraint, DecisionRecord, Intent, TelosObject,
+};
 
 const TELOS_DIR: &str = ".telos";
 
@@ -19,6 +22,7 @@ pub struct Repository {
     root: PathBuf,
     pub odb: ObjectDatabase,
     pub refs: RefStore,
+    pub indexes: IndexStore,
 }
 
 impl Repository {
@@ -37,6 +41,7 @@ impl Repository {
         fs::create_dir_all(telos_dir.join("objects"))?;
         fs::create_dir_all(telos_dir.join("refs").join("streams"))?;
         fs::create_dir_all(telos_dir.join("logs").join("streams"))?;
+        fs::create_dir_all(telos_dir.join("indexes"))?;
 
         // Write default config
         let config = serde_json::json!({
@@ -51,6 +56,7 @@ impl Repository {
         let repo = Self {
             odb: ObjectDatabase::new(telos_dir.join("objects")),
             refs: RefStore::new(&telos_dir),
+            indexes: IndexStore::new(telos_dir.join("indexes")),
             root,
         };
 
@@ -83,6 +89,7 @@ impl Repository {
         Ok(Self {
             odb: ObjectDatabase::new(telos_dir.join("objects")),
             refs: RefStore::new(&telos_dir),
+            indexes: IndexStore::new(telos_dir.join("indexes")),
             root,
         })
     }
@@ -111,6 +118,7 @@ impl Repository {
     pub fn create_intent(&self, intent: Intent) -> Result<ObjectId, StoreError> {
         let obj = TelosObject::Intent(intent);
         let id = self.odb.write(&obj)?;
+        self.indexes.update_for_object(&id, &obj)?;
         self.refs.update_current_tip(id.clone())?;
         Ok(id)
     }
@@ -119,6 +127,39 @@ impl Repository {
     pub fn create_decision(&self, record: DecisionRecord) -> Result<ObjectId, StoreError> {
         let obj = TelosObject::DecisionRecord(record);
         let id = self.odb.write(&obj)?;
+        self.indexes.update_for_object(&id, &obj)?;
+        Ok(id)
+    }
+
+    /// Create a constraint and store it.
+    pub fn create_constraint(&self, constraint: Constraint) -> Result<ObjectId, StoreError> {
+        let obj = TelosObject::Constraint(constraint);
+        let id = self.odb.write(&obj)?;
+        self.indexes.update_for_object(&id, &obj)?;
+        Ok(id)
+    }
+
+    /// Create a code binding and store it.
+    pub fn create_code_binding(&self, binding: CodeBinding) -> Result<ObjectId, StoreError> {
+        let obj = TelosObject::CodeBinding(binding);
+        let id = self.odb.write(&obj)?;
+        self.indexes.update_for_object(&id, &obj)?;
+        Ok(id)
+    }
+
+    /// Create an agent operation and store it.
+    pub fn create_agent_operation(&self, op: AgentOperation) -> Result<ObjectId, StoreError> {
+        let obj = TelosObject::AgentOperation(op);
+        let id = self.odb.write(&obj)?;
+        self.indexes.update_for_object(&id, &obj)?;
+        Ok(id)
+    }
+
+    /// Create a change set and store it.
+    pub fn create_change_set(&self, cs: ChangeSet) -> Result<ObjectId, StoreError> {
+        let obj = TelosObject::ChangeSet(cs);
+        let id = self.odb.write(&obj)?;
+        self.indexes.update_for_object(&id, &obj)?;
         Ok(id)
     }
 

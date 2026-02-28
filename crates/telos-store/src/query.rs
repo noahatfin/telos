@@ -1,11 +1,14 @@
 //! Query functions for filtering Telos objects
 
 use telos_core::hash::ObjectId;
+use telos_core::object::agent_operation::AgentOperation;
+use telos_core::object::constraint::{Constraint, ConstraintStatus};
 use telos_core::object::decision_record::DecisionRecord;
 use telos_core::object::intent::Intent;
 use telos_core::object::TelosObject;
 
 use crate::error::StoreError;
+use crate::index_store::IndexStore;
 use crate::odb::ObjectDatabase;
 
 /// Query intents with optional filters.
@@ -70,6 +73,113 @@ pub fn query_decisions(
         }
     }
     // Sort by timestamp descending
+    results.sort_by(|a, b| b.1.timestamp.cmp(&a.1.timestamp));
+    Ok(results)
+}
+
+/// Query constraints with optional filters.
+pub fn query_constraints(
+    odb: &ObjectDatabase,
+    impact: Option<&str>,
+    status: Option<&str>,
+) -> Result<Vec<(ObjectId, Constraint)>, StoreError> {
+    let status_filter = status.unwrap_or("active");
+    let target_status = match status_filter {
+        "active" => ConstraintStatus::Active,
+        "superseded" => ConstraintStatus::Superseded,
+        "deprecated" => ConstraintStatus::Deprecated,
+        _ => ConstraintStatus::Active,
+    };
+
+    let all = odb.iter_all()?;
+    let mut results = Vec::new();
+    for (id, obj) in all {
+        if let TelosObject::Constraint(c) = obj {
+            let mut matches = c.status == target_status;
+            if let Some(impact_filter) = impact {
+                if !c.impacts.iter().any(|i| i == impact_filter) {
+                    matches = false;
+                }
+            }
+            if matches {
+                results.push((id, c));
+            }
+        }
+    }
+    results.sort_by(|a, b| b.1.timestamp.cmp(&a.1.timestamp));
+    Ok(results)
+}
+
+/// Query constraints bound to a specific file path.
+pub fn query_constraints_by_file(
+    odb: &ObjectDatabase,
+    index: &IndexStore,
+    file_path: &str,
+) -> Result<Vec<(ObjectId, Constraint)>, StoreError> {
+    let bindings = index.by_path(file_path);
+    let mut results = Vec::new();
+    for binding_entry in bindings {
+        if let Ok(binding_id) = ObjectId::parse(&binding_entry.id) {
+            if let Ok(TelosObject::CodeBinding(cb)) = odb.read(&binding_id) {
+                let bound_id = &cb.bound_object;
+                if let Ok(TelosObject::Constraint(c)) = odb.read(bound_id) {
+                    results.push((bound_id.clone(), c));
+                }
+            }
+        }
+    }
+    results.sort_by(|a, b| b.1.timestamp.cmp(&a.1.timestamp));
+    Ok(results)
+}
+
+/// Query constraints bound to a specific symbol name.
+pub fn query_constraints_by_symbol(
+    odb: &ObjectDatabase,
+    index: &IndexStore,
+    symbol: &str,
+) -> Result<Vec<(ObjectId, Constraint)>, StoreError> {
+    let bindings = index.by_symbol(symbol);
+    let mut results = Vec::new();
+    for binding_entry in bindings {
+        if let Ok(binding_id) = ObjectId::parse(&binding_entry.id) {
+            if let Ok(TelosObject::CodeBinding(cb)) = odb.read(&binding_id) {
+                let bound_id = &cb.bound_object;
+                if let Ok(TelosObject::Constraint(c)) = odb.read(bound_id) {
+                    results.push((bound_id.clone(), c));
+                }
+            }
+        }
+    }
+    results.sort_by(|a, b| b.1.timestamp.cmp(&a.1.timestamp));
+    Ok(results)
+}
+
+/// Query agent operations with optional filters.
+pub fn query_agent_operations(
+    odb: &ObjectDatabase,
+    agent_id: Option<&str>,
+    session_id: Option<&str>,
+) -> Result<Vec<(ObjectId, AgentOperation)>, StoreError> {
+    let all = odb.iter_all()?;
+    let mut results = Vec::new();
+    for (id, obj) in all {
+        if let TelosObject::AgentOperation(op) = obj {
+            let mut matches = true;
+            if let Some(aid) = agent_id {
+                if op.agent_id != aid {
+                    matches = false;
+                }
+            }
+            if let Some(sid) = session_id {
+                if op.session_id != sid {
+                    matches = false;
+                }
+            }
+            if matches {
+                results.push((id, op));
+            }
+        }
+    }
     results.sort_by(|a, b| b.1.timestamp.cmp(&a.1.timestamp));
     Ok(results)
 }

@@ -105,6 +105,73 @@ pub fn run(id: String, json: bool) -> Result<()> {
                 println!("Tags: {}", dr.tags.join(", "));
             }
         }
+        TelosObject::Constraint(c) => {
+            println!("constraint {}", oid.hex());
+            println!("Author:   {} <{}>", c.author.name, c.author.email);
+            println!("Date:     {}", c.timestamp.format("%Y-%m-%d %H:%M:%S %Z"));
+            println!("Severity: {:?}", c.severity);
+            println!("Status:   {:?}", c.status);
+            println!("Source:   {}", c.source_intent.short());
+            println!();
+            println!("    {}", c.statement);
+            if !c.impacts.is_empty() {
+                println!();
+                println!("Impacts: {}", c.impacts.join(", "));
+            }
+        }
+        TelosObject::CodeBinding(cb) => {
+            println!("code_binding {}", oid.hex());
+            println!("Path:       {}", cb.path);
+            if let Some(sym) = &cb.symbol {
+                println!("Symbol:     {}", sym);
+            }
+            if let Some((start, end)) = cb.span {
+                println!("Span:       {}..{}", start, end);
+            }
+            println!("Type:       {:?}", cb.binding_type);
+            println!("Resolution: {:?}", cb.resolution);
+            println!("Bound to:   {}", cb.bound_object.short());
+        }
+        TelosObject::AgentOperation(ao) => {
+            println!("agent_operation {}", oid.hex());
+            println!("Agent:    {}", ao.agent_id);
+            println!("Session:  {}", ao.session_id);
+            println!("Date:     {}", ao.timestamp.format("%Y-%m-%d %H:%M:%S %Z"));
+            println!("Op:       {:?}", ao.operation);
+            println!("Result:   {:?}", ao.result);
+            println!();
+            println!("    {}", ao.summary);
+            if !ao.files_touched.is_empty() {
+                println!();
+                println!("Files: {}", ao.files_touched.join(", "));
+            }
+        }
+        TelosObject::ChangeSet(cs) => {
+            println!("change_set {}", oid.hex());
+            println!("Author:  {} <{}>", cs.author.name, cs.author.email);
+            println!("Date:    {}", cs.timestamp.format("%Y-%m-%d %H:%M:%S %Z"));
+            println!("Commit:  {}", cs.git_commit);
+            if !cs.intents.is_empty() {
+                let refs: Vec<_> = cs.intents.iter().map(|i| i.short().to_string()).collect();
+                println!("Intents: {}", refs.join(", "));
+            }
+            if !cs.constraints.is_empty() {
+                let refs: Vec<_> = cs.constraints.iter().map(|i| i.short().to_string()).collect();
+                println!("Constraints: {}", refs.join(", "));
+            }
+            if !cs.decisions.is_empty() {
+                let refs: Vec<_> = cs.decisions.iter().map(|i| i.short().to_string()).collect();
+                println!("Decisions: {}", refs.join(", "));
+            }
+            if !cs.code_bindings.is_empty() {
+                let refs: Vec<_> = cs.code_bindings.iter().map(|i| i.short().to_string()).collect();
+                println!("Code bindings: {}", refs.join(", "));
+            }
+            if !cs.agent_operations.is_empty() {
+                let refs: Vec<_> = cs.agent_operations.iter().map(|i| i.short().to_string()).collect();
+                println!("Agent ops: {}", refs.join(", "));
+            }
+        }
     }
 
     Ok(())
