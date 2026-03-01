@@ -1,5 +1,6 @@
 use assert_cmd::Command;
 use serde_json::Value;
+use std::process;
 use tempfile::TempDir;
 
 fn telos() -> Command {
@@ -1168,4 +1169,127 @@ fn full_v2_workflow() {
     let parsed: Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(parsed["impact"], "auth");
     assert!(!parsed["intents"].as_array().unwrap().is_empty());
+}
+
+// ========== ChangeSet Integration Tests ==========
+
+/// Initialize a git repo in the given directory with an initial empty commit.
+fn init_git_repo(dir: &TempDir) {
+    process::Command::new("git")
+        .args(["init"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to init git repo");
+    process::Command::new("git")
+        .args(["config", "user.email", "test@test.com"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to configure git email");
+    process::Command::new("git")
+        .args(["config", "user.name", "Test"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to configure git name");
+    process::Command::new("git")
+        .args(["commit", "--allow-empty", "-m", "init"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to create initial git commit");
+}
+
+#[test]
+fn changeset_create_and_show() {
+    let dir = TempDir::new().unwrap();
+
+    // Initialize telos repo
+    telos().arg("init").current_dir(dir.path()).assert().success();
+
+    // Initialize git repo
+    init_git_repo(&dir);
+
+    // Create an intent first
+    let output = telos()
+        .args(["intent", "-s", "Test intent for changeset", "--impact", "auth"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let intent_id = stdout.trim().split_whitespace().last().unwrap().to_string();
+
+    // Create changeset
+    let output = telos()
+        .args([
+            "changeset", "create",
+            "--commit", "HEAD",
+            "--intent", &intent_id,
+        ])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "changeset create failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("Created changeset"));
+
+    // Extract changeset ID from "Created changeset XXXX for commit YYYY"
+    let cs_id = stdout.trim().split_whitespace().nth(2).unwrap().to_string();
+
+    // Show changeset
+    let output = telos()
+        .args(["changeset", "show", &cs_id])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "changeset show failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("ChangeSet"));
+    assert!(stdout.contains("Intents: 1"));
+
+    // Show changeset in JSON mode (via the general show command)
+    let output = telos()
+        .args(["show", "--json", &cs_id])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(parsed["object"]["type"], "change_set");
+}
+
+#[test]
+fn changeset_for_commit() {
+    let dir = TempDir::new().unwrap();
+
+    // Initialize telos and git
+    telos().arg("init").current_dir(dir.path()).assert().success();
+    init_git_repo(&dir);
+
+    // Create intent
+    let output = telos()
+        .args(["intent", "-s", "Test for commit query", "--impact", "auth"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let intent_id = stdout.trim().split_whitespace().last().unwrap().to_string();
+
+    // Create changeset
+    telos()
+        .args(["changeset", "create", "--commit", "HEAD", "--intent", &intent_id])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    // Query by commit
+    let output = telos()
+        .args(["changeset", "for-commit", "HEAD", "--json"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "for-commit failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert!(arr[0]["changeset"]["git_commit"].is_string());
 }

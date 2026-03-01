@@ -7,10 +7,11 @@ pub fn run() -> Result<()> {
     let repo = Repository::discover(&cwd).context("not a Telos repository")?;
 
     println!("Rebuilding indexes...");
-    let (impact_count, path_count, sym_count) = repo.indexes.rebuild_all(&repo.odb)?;
+    let (impact_count, path_count, sym_count, commit_count) = repo.indexes.rebuild_all(&repo.odb)?;
     println!("  impact tags:  {} entries", impact_count);
     println!("  code paths:   {} entries", path_count);
     println!("  symbols:      {} entries", sym_count);
+    println!("  commits:      {} entries", commit_count);
     println!("Done.");
     Ok(())
 }

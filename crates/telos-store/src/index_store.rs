@@ -73,6 +73,10 @@ impl IndexStore {
         self.indexes_dir.join("symbols.json")
     }
 
+    fn commits_path(&self) -> PathBuf {
+        self.indexes_dir.join("commits.json")
+    }
+
     fn load_index<T: for<'de> Deserialize<'de>>(&self, path: &PathBuf) -> IndexFile<T> {
         match fs::read_to_string(path) {
             Ok(data) => serde_json::from_str(&data).unwrap_or_default(),
@@ -137,17 +141,27 @@ impl IndexStore {
                     self.save_index(&self.symbols_path(), &symbols)?;
                 }
             }
+            TelosObject::ChangeSet(cs) => {
+                let mut index: IndexFile<IndexEntry> = self.load_index(&self.commits_path());
+                let entry = IndexEntry {
+                    id: id.hex().to_string(),
+                    object_type: "change_set".into(),
+                };
+                index.entries.entry(cs.git_commit.clone()).or_default().push(entry);
+                self.save_index(&self.commits_path(), &index)?;
+            }
             _ => {}
         }
         Ok(())
     }
 
     /// Rebuild all indexes from the object store.
-    pub fn rebuild_all(&self, odb: &ObjectDatabase) -> Result<(usize, usize, usize), StoreError> {
+    pub fn rebuild_all(&self, odb: &ObjectDatabase) -> Result<(usize, usize, usize, usize), StoreError> {
         self.ensure_dir()?;
         let mut impact: IndexFile<IndexEntry> = IndexFile::default();
         let mut codepath: IndexFile<PathIndexEntry> = IndexFile::default();
         let mut symbols: IndexFile<PathIndexEntry> = IndexFile::default();
+        let mut commits: IndexFile<IndexEntry> = IndexFile::default();
 
         for (id, obj) in odb.iter_all()? {
             match &obj {
@@ -181,6 +195,13 @@ impl IndexStore {
                         symbols.entries.entry(sym.clone()).or_default().push(entry);
                     }
                 }
+                TelosObject::ChangeSet(cs) => {
+                    let entry = IndexEntry {
+                        id: id.hex().to_string(),
+                        object_type: "change_set".into(),
+                    };
+                    commits.entries.entry(cs.git_commit.clone()).or_default().push(entry);
+                }
                 _ => {}
             }
         }
@@ -188,12 +209,14 @@ impl IndexStore {
         let impact_count = impact.entries.len();
         let path_count = codepath.entries.len();
         let sym_count = symbols.entries.len();
+        let commit_count = commits.entries.len();
 
         self.save_index(&self.impact_path(), &impact)?;
         self.save_index(&self.codepath_path(), &codepath)?;
         self.save_index(&self.symbols_path(), &symbols)?;
+        self.save_index(&self.commits_path(), &commits)?;
 
-        Ok((impact_count, path_count, sym_count))
+        Ok((impact_count, path_count, sym_count, commit_count))
     }
 
     /// Lookup entries by impact tag.
@@ -212,6 +235,12 @@ impl IndexStore {
     pub fn by_symbol(&self, name: &str) -> Vec<PathIndexEntry> {
         let index: IndexFile<PathIndexEntry> = self.load_index(&self.symbols_path());
         index.entries.get(name).cloned().unwrap_or_default()
+    }
+
+    /// Lookup entries by git commit SHA.
+    pub fn by_commit(&self, sha: &str) -> Vec<IndexEntry> {
+        let index: IndexFile<IndexEntry> = self.load_index(&self.commits_path());
+        index.entries.get(sha).cloned().unwrap_or_default()
     }
 }
 
@@ -276,6 +305,29 @@ mod tests {
     }
 
     #[test]
+    fn update_and_lookup_by_commit() {
+        let (_dir, odb, index) = make_odb_and_index();
+        let cs = TelosObject::ChangeSet(telos_core::object::change_set::ChangeSet {
+            author: Author { name: "T".into(), email: "t@t".into() },
+            timestamp: Utc::now(),
+            git_commit: "abc123def456".into(),
+            parents: vec![],
+            intents: vec![],
+            constraints: vec![],
+            decisions: vec![],
+            code_bindings: vec![],
+            agent_operations: vec![],
+            metadata: std::collections::HashMap::new(),
+        });
+        let id = odb.write(&cs).unwrap();
+        index.update_for_object(&id, &cs).unwrap();
+
+        let results = index.by_commit("abc123def456");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, id.hex());
+    }
+
+    #[test]
     fn rebuild_all_indexes() {
         let (_dir, odb, index) = make_odb_and_index();
 
@@ -312,7 +364,7 @@ mod tests {
         assert!(index.by_impact("payments").is_empty());
 
         // Rebuild
-        let (impact_count, _path_count, _sym_count) = index.rebuild_all(&odb).unwrap();
+        let (impact_count, _path_count, _sym_count, _commit_count) = index.rebuild_all(&odb).unwrap();
         assert!(impact_count > 0);
 
         // Now index should have entries

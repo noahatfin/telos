@@ -201,6 +201,12 @@ enum Commands {
 
     /// Rebuild all indexes
     Reindex,
+
+    /// Manage changesets (Git commit <-> Telos reasoning bridge)
+    Changeset {
+        #[command(subcommand)]
+        action: ChangesetAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -252,6 +258,35 @@ enum QueryAction {
         /// Filter by session identifier
         #[arg(long)]
         session: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum ChangesetAction {
+    /// Create a changeset linking a git commit to Telos objects
+    Create {
+        /// Git commit SHA or HEAD
+        #[arg(long)]
+        commit: String,
+        /// Intent IDs (repeatable)
+        #[arg(long)]
+        intent: Vec<String>,
+        /// Constraint IDs (repeatable)
+        #[arg(long)]
+        constraint: Vec<String>,
+        /// Decision IDs (repeatable)
+        #[arg(long)]
+        decision: Vec<String>,
+    },
+    /// Show a changeset by ID
+    Show {
+        /// Changeset ID
+        id: String,
+    },
+    /// Find changeset for a git commit
+    ForCommit {
+        /// Git commit SHA or HEAD
+        commit: String,
     },
 }
 
@@ -351,6 +386,18 @@ fn main() {
             file,
         } => commands::agent_log::run(agent, session, operation, summary, context_ref, file),
         Commands::Reindex => commands::reindex::run(),
+        Commands::Changeset { action } => match action {
+            ChangesetAction::Create {
+                commit,
+                intent,
+                constraint,
+                decision,
+            } => commands::changeset::create(commit, intent, constraint, decision, cli.json),
+            ChangesetAction::Show { id } => commands::changeset::show(id, cli.json),
+            ChangesetAction::ForCommit { commit } => {
+                commands::changeset::for_commit(commit, cli.json)
+            }
+        },
     };
 
     if let Err(e) = result {
