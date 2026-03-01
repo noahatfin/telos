@@ -1,0 +1,19 @@
+[package]
+name = "telos-experiment"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+toml = "0.8"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[[bin]]
+name = "telos-experiment"
+path = "src/main.rs"

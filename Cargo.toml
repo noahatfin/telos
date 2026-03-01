@@ -4,6 +4,7 @@ members = [
     "crates/telos-core",
     "crates/telos-store",
     "crates/telos-cli",
+    "crates/telos-experiment",
 ]
 exclude = [
     "validation/taskboard",

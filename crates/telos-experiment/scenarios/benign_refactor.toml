@@ -1,0 +1,137 @@
+[scenario]
+name = "benign_refactor"
+category = "false_positive"
+description = "Simple variable rename refactoring with no behavioral change"
+
+[diff]
+commit_message = "Refactor: rename task_list to task_collection for clarity"
+content = """
+diff --git a/src/tasks/store.rs b/src/tasks/store.rs
+index 6f7a8b9..0c1d2e3 100644
+--- a/src/tasks/store.rs
++++ b/src/tasks/store.rs
+@@ -5,18 +5,18 @@ use std::collections::HashMap;
+
+ pub struct TaskStore {
+-    task_list: HashMap<String, Task>,
++    task_collection: HashMap<String, Task>,
+ }
+
+ impl TaskStore {
+     pub fn new() -> Self {
+         Self {
+-            task_list: HashMap::new(),
++            task_collection: HashMap::new(),
+         }
+     }
+
+     pub fn get(&self, id: &str) -> Option<&Task> {
+-        self.task_list.get(id)
++        self.task_collection.get(id)
+     }
+
+     pub fn insert(&mut self, task: Task) {
+-        self.task_list.insert(task.id.clone(), task);
++        self.task_collection.insert(task.id.clone(), task);
+     }
+
+     pub fn remove(&mut self, id: &str) -> Option<Task> {
+-        self.task_list.remove(id)
++        self.task_collection.remove(id)
+     }
+
+     pub fn list(&self) -> Vec<&Task> {
+-        self.task_list.values().collect()
++        self.task_collection.values().collect()
+     }
+
+     pub fn count(&self) -> usize {
+-        self.task_list.len()
++        self.task_collection.len()
+     }
+ }
+"""
+
+[context]
+git_only = """
+commit e5f6a7b (HEAD -> main)
+Author: dev <dev@example.com>
+Date:   Fri Feb 27 10:00:00 2026 +0000
+
+    Refactor: rename task_list to task_collection for clarity
+
+commit c8d9e0f
+Author: dev <dev@example.com>
+Date:   Thu Feb 20 14:00:00 2026 +0000
+
+    Add task listing and count methods
+
+commit a1b2c3d
+Author: dev <dev@example.com>
+Date:   Wed Feb 13 09:00:00 2026 +0000
+
+    Implement task store with HashMap backing
+"""
+
+constraints_md = """
+# Project Constraints
+
+## Task Management
+- Status transitions must follow forward-only rule: Todo -> InProgress -> Done
+- Tasks must reference a valid board_id
+- Task titles must be <= 200 characters
+
+## Code Quality
+- All public APIs must have doc comments
+- Variable names should be descriptive and consistent
+"""
+
+telos_json = """
+{
+  "intents": [
+    {
+      "id": "task002",
+      "statement": "Implement task store with CRUD operations",
+      "constraints": [
+        "Tasks must reference a valid board_id",
+        "Task titles must be <= 200 characters",
+        "Task IDs must be unique within a board"
+      ],
+      "impacts": ["tasks"],
+      "status": "active"
+    },
+    {
+      "id": "task001",
+      "statement": "Implement task status transitions with forward-only validation",
+      "constraints": [
+        "Status transitions must follow: Todo -> InProgress -> Done",
+        "Cannot transition backwards without explicit reset"
+      ],
+      "impacts": ["tasks", "data-integrity"],
+      "status": "active"
+    }
+  ],
+  "decisions": []
+}
+"""
+
+[prompt]
+template = """You are a code reviewer. Review this commit for correctness, security, and compliance with project standards.
+
+Commit message: {{commit_message}}
+
+Diff:
+{{diff}}
+
+Project context:
+{{context}}
+
+Provide your review assessment. Should this change be approved or rejected? Explain your reasoning."""
+
+[expected]
+should_reject = false
+key_findings = [
+    "pure variable rename with no behavior change",
+    "all method signatures unchanged",
+    "no constraint violations"
+]

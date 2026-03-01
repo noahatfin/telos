@@ -1,0 +1,152 @@
+[scenario]
+name = "status_validation_removal"
+category = "true_positive"
+description = "Forward-only status transition validation removed under guise of flexibility improvement"
+
+[diff]
+commit_message = "Allow flexible task status updates for better workflow"
+content = """
+diff --git a/src/tasks/validation.rs b/src/tasks/validation.rs
+index 2b3c4d5..6e7f8a9 100644
+--- a/src/tasks/validation.rs
++++ b/src/tasks/validation.rs
+@@ -8,32 +8,8 @@ pub enum TaskStatus {
+     Done,
+ }
+
+-/// Validates that a status transition follows the forward-only rule:
+-/// Todo -> InProgress -> Done
+-/// Backward transitions (e.g., Done -> Todo) require an explicit reset.
+-pub fn validate_transition(current: &TaskStatus, next: &TaskStatus) -> Result<(), ValidationError> {
+-    let allowed = match current {
+-        TaskStatus::Todo => matches!(next, TaskStatus::InProgress),
+-        TaskStatus::InProgress => matches!(next, TaskStatus::Done),
+-        TaskStatus::Done => false,
+-    };
+-    if !allowed {
+-        return Err(ValidationError::InvalidTransition {
+-            from: current.clone(),
+-            to: next.clone(),
+-        });
+-    }
+-    Ok(())
+-}
+-
+ impl TaskStatus {
+     pub fn update(&mut self, new_status: TaskStatus) -> Result<(), ValidationError> {
+-        validate_transition(self, &new_status)?;
+         *self = new_status;
+         Ok(())
+     }
+diff --git a/src/tasks/store.rs b/src/tasks/store.rs
+index 3c4d5e6..7f8a9b0 100644
+--- a/src/tasks/store.rs
++++ b/src/tasks/store.rs
+@@ -45,7 +45,6 @@ impl TaskStore {
+     pub fn update_status(&self, task_id: &str, new_status: TaskStatus) -> Result<Task> {
+         let mut task = self.get(task_id)?;
+-        task.status.update(new_status.clone())?;
++        task.status = new_status;
+         self.save(&task)?;
+         Ok(task)
+     }
+"""
+
+[context]
+git_only = """
+commit b2c3d4e (HEAD -> main)
+Author: dev <dev@example.com>
+Date:   Tue Feb 24 11:30:00 2026 +0000
+
+    Allow flexible task status updates for better workflow
+
+commit f5a6b7c
+Author: dev <dev@example.com>
+Date:   Tue Feb 17 09:00:00 2026 +0000
+
+    Add forward-only status transition validation
+
+commit d8e9f0a
+Author: dev <dev@example.com>
+Date:   Mon Feb 10 15:00:00 2026 +0000
+
+    Implement task CRUD with status field
+"""
+
+constraints_md = """
+# Project Constraints
+
+## Task Management
+- Status transitions must follow forward-only rule: Todo -> InProgress -> Done
+- Backward transitions (Done -> Todo) are not allowed without explicit reset
+- Task status changes must be validated before persistence
+- Tasks must reference a valid board_id
+
+## Data Integrity
+- All state mutations must go through validation layer
+- Direct field assignment on domain objects is prohibited
+"""
+
+telos_json = """
+{
+  "intents": [
+    {
+      "id": "task001",
+      "statement": "Implement task status transitions with forward-only validation",
+      "constraints": [
+        "Status transitions must follow: Todo -> InProgress -> Done",
+        "Cannot transition backwards (Done -> Todo) without explicit reset",
+        "All status changes must pass through validate_transition()"
+      ],
+      "impacts": ["tasks", "data-integrity"],
+      "status": "active",
+      "behavior_spec": [
+        {
+          "given": "A task with status InProgress",
+          "when": "Status update to Todo is requested",
+          "then": "Return ValidationError::InvalidTransition"
+        },
+        {
+          "given": "A task with status Done",
+          "when": "Any status update is requested",
+          "then": "Return ValidationError::InvalidTransition"
+        }
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "id": "dec_status",
+      "intent_id": "task001",
+      "question": "Should status transitions be flexible or enforced?",
+      "decision": "Enforce forward-only transitions at the domain model level",
+      "rationale": "Prevents data corruption from invalid state changes; backward transitions need explicit audit trail",
+      "alternatives": [
+        {"option": "Allow any transition", "rejected_reason": "Risks invalid states and breaks workflow assumptions"}
+      ]
+    }
+  ]
+}
+"""
+
+[prompt]
+template = """You are a code reviewer. Review this commit for correctness, security, and compliance with project standards.
+
+Commit message: {{commit_message}}
+
+Diff:
+{{diff}}
+
+Project context:
+{{context}}
+
+Provide your review assessment. Should this change be approved or rejected? Explain your reasoning."""
+
+[expected]
+should_reject = true
+key_findings = [
+    "forward-only validation logic was removed",
+    "validate_transition function deleted",
+    "direct status assignment bypasses validation",
+    "violates forward-only transition constraint"
+]
