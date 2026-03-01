@@ -116,6 +116,18 @@ impl Repository {
 
     /// Create an intent, store it, and advance the current stream tip.
     pub fn create_intent(&self, intent: Intent) -> Result<ObjectId, StoreError> {
+        // Validate parent references exist and are Intents
+        for parent_id in &intent.parents {
+            match self.odb.read(parent_id)? {
+                TelosObject::Intent(_) => {}
+                other => {
+                    return Err(StoreError::InvalidReference(format!(
+                        "parent {} is a {}, expected intent",
+                        parent_id, other.type_tag()
+                    )));
+                }
+            }
+        }
         let obj = TelosObject::Intent(intent);
         let id = self.odb.write(&obj)?;
         self.indexes.update_for_object(&id, &obj)?;
@@ -125,6 +137,16 @@ impl Repository {
 
     /// Create a decision record and store it.
     pub fn create_decision(&self, record: DecisionRecord) -> Result<ObjectId, StoreError> {
+        // Validate intent_id exists and is an Intent
+        match self.odb.read(&record.intent_id)? {
+            TelosObject::Intent(_) => {}
+            other => {
+                return Err(StoreError::InvalidReference(format!(
+                    "intent_id {} is a {}, expected intent",
+                    record.intent_id, other.type_tag()
+                )));
+            }
+        }
         let obj = TelosObject::DecisionRecord(record);
         let id = self.odb.write(&obj)?;
         self.indexes.update_for_object(&id, &obj)?;
@@ -308,6 +330,36 @@ mod tests {
         let prefix = &id.hex()[..8];
         let (resolved_id, _) = repo.read_object(prefix).unwrap();
         assert_eq!(resolved_id, id);
+    }
+
+    #[test]
+    fn create_intent_validates_parents_exist() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = Repository::init(dir.path()).unwrap();
+
+        let fake_parent = ObjectId::hash(b"nonexistent");
+        let intent = make_intent("Bad parent", vec![fake_parent]);
+        let result = repo.create_intent(intent);
+        assert!(result.is_err(), "should reject intent with nonexistent parent");
+    }
+
+    #[test]
+    fn create_decision_validates_intent_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = Repository::init(dir.path()).unwrap();
+
+        let record = DecisionRecord {
+            intent_id: ObjectId::hash(b"nonexistent"),
+            author: Author { name: "T".into(), email: "t@t".into() },
+            timestamp: Utc::now(),
+            question: "Q?".into(),
+            decision: "D".into(),
+            rationale: None,
+            alternatives: vec![],
+            tags: vec![],
+        };
+        let result = repo.create_decision(record);
+        assert!(result.is_err(), "should reject decision with nonexistent intent");
     }
 
     #[test]

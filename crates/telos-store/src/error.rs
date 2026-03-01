@@ -43,4 +43,7 @@ pub enum StoreError {
 
     #[error("integrity error: expected {expected}, got {actual}")]
     IntegrityError { expected: String, actual: String },
+
+    #[error("invalid reference: {0}")]
+    InvalidReference(String),
 }
