@@ -40,4 +40,7 @@ pub enum StoreError {
 
     #[error("invalid stream name '{0}': {1}")]
     InvalidStreamName(String, String),
+
+    #[error("integrity error: expected {expected}, got {actual}")]
+    IntegrityError { expected: String, actual: String },
 }

@@ -58,6 +58,16 @@ impl ObjectDatabase {
         let path = self.object_path(id);
         let bytes = fs::read(&path)
             .map_err(|_| StoreError::ObjectNotFound(id.hex().to_string()))?;
+
+        // Verify integrity: recompute hash and compare to expected ID
+        let actual_id = ObjectId::hash(&bytes);
+        if &actual_id != id {
+            return Err(StoreError::IntegrityError {
+                expected: id.hex().to_string(),
+                actual: actual_id.hex().to_string(),
+            });
+        }
+
         Ok(TelosObject::from_canonical_bytes(&bytes)?)
     }
 
@@ -195,6 +205,26 @@ mod tests {
         let odb = ObjectDatabase::new(dir.path().join("objects"));
         let id = ObjectId::hash(b"nonexistent");
         assert!(odb.read(&id).is_err());
+    }
+
+    #[test]
+    fn read_detects_corrupted_object() {
+        let dir = tempfile::tempdir().unwrap();
+        let odb = ObjectDatabase::new(dir.path().join("objects"));
+        let obj = sample_intent();
+        let id = odb.write(&obj).unwrap();
+
+        // Corrupt the file by appending garbage
+        let path = odb.object_path(&id);
+        let mut contents = std::fs::read(&path).unwrap();
+        contents.extend_from_slice(b"CORRUPTED");
+        std::fs::write(&path, &contents).unwrap();
+
+        let result = odb.read(&id);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        let err_str = err.to_string();
+        assert!(err_str.contains("integrity"), "error should mention integrity: {}", err_str);
     }
 
     #[test]
