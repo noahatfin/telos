@@ -30,7 +30,7 @@ impl CodexRunner {
         let start = Instant::now();
 
         let output = Command::new(&self.binary)
-            .args(["-q", "--prompt", prompt])
+            .args(["exec", prompt, "--sandbox", "read-only"])
             .output()?;
 
         let duration_ms = start.elapsed().as_millis() as u64;
