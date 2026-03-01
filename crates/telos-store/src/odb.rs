@@ -5,6 +5,13 @@ use std::path::PathBuf;
 use telos_core::hash::ObjectId;
 use telos_core::object::TelosObject;
 
+/// A record of an object that failed to load.
+#[derive(Debug)]
+pub struct CorruptedObject {
+    pub path: String,
+    pub error: String,
+}
+
 /// Content-addressable object database.
 ///
 /// Objects are stored as `objects/<2-char fan-out>/<remaining 62 chars>`.
@@ -102,6 +109,45 @@ impl ObjectDatabase {
             }
         }
         Ok(results)
+    }
+
+    /// Iterate over all objects, reporting corrupted ones separately.
+    pub fn iter_all_with_errors(
+        &self,
+    ) -> Result<(Vec<(ObjectId, TelosObject)>, Vec<CorruptedObject>), StoreError> {
+        let mut valid = Vec::new();
+        let mut corrupted = Vec::new();
+
+        let entries = match fs::read_dir(&self.objects_dir) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((valid, corrupted)),
+            Err(e) => return Err(StoreError::Io(e)),
+        };
+
+        for fan_entry in entries {
+            let fan_entry = fan_entry.map_err(StoreError::Io)?;
+            let fan_name = fan_entry.file_name().to_string_lossy().to_string();
+            if fan_name.len() != 2 || !fan_entry.path().is_dir() {
+                continue;
+            }
+            let sub_entries = fs::read_dir(fan_entry.path()).map_err(StoreError::Io)?;
+            for obj_entry in sub_entries {
+                let obj_entry = obj_entry.map_err(StoreError::Io)?;
+                let obj_name = obj_entry.file_name().to_string_lossy().to_string();
+                let hex = format!("{}{}", fan_name, obj_name);
+                match ObjectId::parse(&hex) {
+                    Ok(id) => match self.read(&id) {
+                        Ok(obj) => valid.push((id, obj)),
+                        Err(e) => corrupted.push(CorruptedObject {
+                            path: obj_entry.path().display().to_string(),
+                            error: e.to_string(),
+                        }),
+                    },
+                    Err(_) => continue,
+                }
+            }
+        }
+        Ok((valid, corrupted))
     }
 
     /// Check if an object exists.
@@ -238,6 +284,29 @@ mod tests {
         let prefix = &id.hex()[..8];
         let resolved = odb.resolve_prefix(prefix).unwrap();
         assert_eq!(resolved, id);
+    }
+
+    #[test]
+    fn iter_all_reports_corrupted_objects() {
+        let dir = tempfile::tempdir().unwrap();
+        let odb = ObjectDatabase::new(dir.path().join("objects"));
+
+        // Write a valid object
+        let obj = sample_intent();
+        let _id = odb.write(&obj).unwrap();
+
+        // Write a garbage file in a valid fan-out dir
+        let corrupt_dir = dir.path().join("objects").join("ab");
+        fs::create_dir_all(&corrupt_dir).unwrap();
+        fs::write(
+            corrupt_dir.join("abcdef1234567890abcdef1234567890abcdef1234567890abcdef12345678"),
+            b"NOT VALID DATA",
+        ).unwrap();
+
+        let (valid, corrupted) = odb.iter_all_with_errors().unwrap();
+        assert_eq!(valid.len(), 1);
+        assert_eq!(corrupted.len(), 1);
+        assert!(corrupted[0].path.contains("ab"));
     }
 
     #[test]
