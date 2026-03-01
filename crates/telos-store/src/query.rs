@@ -2,6 +2,7 @@
 
 use telos_core::hash::ObjectId;
 use telos_core::object::agent_operation::AgentOperation;
+use telos_core::object::change_set::ChangeSet;
 use telos_core::object::constraint::{Constraint, ConstraintStatus};
 use telos_core::object::decision_record::DecisionRecord;
 use telos_core::object::intent::Intent;
@@ -184,6 +185,40 @@ pub fn query_agent_operations(
     Ok(results)
 }
 
+/// Query changesets with optional filters.
+pub fn query_changesets(
+    odb: &ObjectDatabase,
+    index: &IndexStore,
+    git_commit: Option<&str>,
+    _impact: Option<&str>,
+) -> Result<Vec<(ObjectId, ChangeSet)>, StoreError> {
+    if let Some(commit_sha) = git_commit {
+        // Use index for commit-based lookup
+        let entries = index.by_commit(commit_sha);
+        let mut results = Vec::new();
+        for entry in entries {
+            if let Ok(id) = ObjectId::parse(&entry.id) {
+                if let Ok(TelosObject::ChangeSet(cs)) = odb.read(&id) {
+                    results.push((id, cs));
+                }
+            }
+        }
+        results.sort_by(|a, b| b.1.timestamp.cmp(&a.1.timestamp));
+        return Ok(results);
+    }
+
+    // Fallback: scan all objects
+    let all = odb.iter_all()?;
+    let mut results = Vec::new();
+    for (id, obj) in all {
+        if let TelosObject::ChangeSet(cs) = obj {
+            results.push((id, cs));
+        }
+    }
+    results.sort_by(|a, b| b.1.timestamp.cmp(&a.1.timestamp));
+    Ok(results)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -270,6 +305,31 @@ mod tests {
         let results = query_decisions(&odb, Some(&intent_id), None).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].1.decision, "JWT");
+    }
+
+    #[test]
+    fn query_changesets_by_commit() {
+        let (_dir, odb) = make_odb();
+        let index = crate::index_store::IndexStore::new(_dir.path().join("indexes"));
+
+        let cs = telos_core::object::change_set::ChangeSet {
+            author: Author { name: "T".into(), email: "t@t".into() },
+            timestamp: Utc::now(),
+            git_commit: "a1b2c3d".into(),
+            parents: vec![],
+            intents: vec![],
+            constraints: vec![],
+            decisions: vec![],
+            code_bindings: vec![],
+            agent_operations: vec![],
+            metadata: std::collections::HashMap::new(),
+        };
+        let obj = TelosObject::ChangeSet(cs);
+        let id = odb.write(&obj).unwrap();
+        index.update_for_object(&id, &obj).unwrap();
+
+        let results = query_changesets(&odb, &index, Some("a1b2c3d"), None).unwrap();
+        assert_eq!(results.len(), 1);
     }
 
     #[test]
