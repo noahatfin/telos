@@ -1,5 +1,6 @@
 pub mod agent_log;
 pub mod bind;
+pub mod changeset;
 pub mod check;
 pub mod constraint;
 pub mod context;
