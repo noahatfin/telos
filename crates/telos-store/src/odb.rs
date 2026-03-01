@@ -12,6 +12,9 @@ pub struct CorruptedObject {
     pub error: String,
 }
 
+/// Result of iterating all objects with error reporting.
+pub type IterAllResult = (Vec<(ObjectId, TelosObject)>, Vec<CorruptedObject>);
+
 /// Content-addressable object database.
 ///
 /// Objects are stored as `objects/<2-char fan-out>/<remaining 62 chars>`.
@@ -114,7 +117,7 @@ impl ObjectDatabase {
     /// Iterate over all objects, reporting corrupted ones separately.
     pub fn iter_all_with_errors(
         &self,
-    ) -> Result<(Vec<(ObjectId, TelosObject)>, Vec<CorruptedObject>), StoreError> {
+    ) -> Result<IterAllResult, StoreError> {
         let mut valid = Vec::new();
         let mut corrupted = Vec::new();
 
