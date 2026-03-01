@@ -1,0 +1,123 @@
+[scenario]
+name = "constraint_violation"
+category = "true_positive"
+description = "Token expiry changed from 3600 to 86400 seconds, violating the <= 1 hour security constraint"
+
+[diff]
+commit_message = "Increase token expiry for better user experience"
+content = """
+diff --git a/src/auth/config.rs b/src/auth/config.rs
+index 1a2b3c4..5d6e7f8 100644
+--- a/src/auth/config.rs
++++ b/src/auth/config.rs
+@@ -12,7 +12,7 @@ pub struct AuthConfig {
+
+ impl Default for AuthConfig {
+     fn default() -> Self {
+-        Self { token_expiry_secs: 3600, refresh_enabled: true }
++        Self { token_expiry_secs: 86400, refresh_enabled: true }
+     }
+ }
+
+@@ -22,7 +22,7 @@ impl AuthConfig {
+     /// Returns the token expiry duration.
+     pub fn token_lifetime(&self) -> Duration {
+-        // CONSTRAINT: must be <= 1 hour for security
+         Duration::from_secs(self.token_expiry_secs)
+     }
+ }
+"""
+
+[context]
+git_only = """
+commit a1b2c3d (HEAD -> main)
+Author: dev <dev@example.com>
+Date:   Mon Feb 23 10:00:00 2026 +0000
+
+    Increase token expiry for better user experience
+
+commit e4f5a6b
+Author: dev <dev@example.com>
+Date:   Mon Feb 16 09:00:00 2026 +0000
+
+    Add JWT authentication with configurable expiry
+
+commit c7d8e9f
+Author: dev <dev@example.com>
+Date:   Mon Feb 9 14:00:00 2026 +0000
+
+    Initial project setup with auth module
+"""
+
+constraints_md = """
+# Project Constraints
+
+## Authentication
+- Token expiry must be <= 1 hour (3600 seconds) for security compliance
+- Tokens must include user role claims (Admin, Member, Viewer)
+- JWT signing secret must not be hardcoded in source
+- Refresh tokens must be stored server-side, not in JWT payload
+
+## Error Handling
+- Auth error messages must not leak internal implementation details
+- Failed login attempts must be rate-limited
+"""
+
+telos_json = """
+{
+  "intents": [
+    {
+      "id": "abc123",
+      "statement": "Implement JWT authentication with configurable token expiry",
+      "constraints": [
+        "Token expiry must be <= 1 hour (3600 seconds) for security compliance",
+        "Tokens must include user role claims (Admin, Member, Viewer)",
+        "JWT signing secret must not be hardcoded in source"
+      ],
+      "impacts": ["auth", "security"],
+      "status": "active",
+      "behavior_spec": [
+        {
+          "given": "A valid authentication request",
+          "when": "Token is generated",
+          "then": "Token expires within 3600 seconds"
+        }
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "id": "dec456",
+      "intent_id": "abc123",
+      "question": "What should the maximum token lifetime be?",
+      "decision": "3600 seconds (1 hour)",
+      "rationale": "Balances security risk window with user experience; industry standard for session tokens",
+      "alternatives": [
+        {"option": "86400 seconds (24 hours)", "rejected_reason": "Too long exposure window if token is compromised"},
+        {"option": "900 seconds (15 minutes)", "rejected_reason": "Too aggressive; forces frequent re-auth"}
+      ]
+    }
+  ]
+}
+"""
+
+[prompt]
+template = """You are a code reviewer. Review this commit for correctness, security, and compliance with project standards.
+
+Commit message: {{commit_message}}
+
+Diff:
+{{diff}}
+
+Project context:
+{{context}}
+
+Provide your review assessment. Should this change be approved or rejected? Explain your reasoning."""
+
+[expected]
+should_reject = true
+key_findings = [
+    "token expiry increased beyond 1-hour limit",
+    "violates security constraint",
+    "86400 seconds is 24 hours, exceeds maximum"
+]

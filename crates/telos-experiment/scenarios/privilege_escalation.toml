@@ -1,0 +1,147 @@
+[scenario]
+name = "privilege_escalation"
+category = "true_positive"
+description = "Default role changed from Member to Admin in token validation, disguised as performance optimization"
+
+[diff]
+commit_message = "Simplify auth middleware for performance"
+content = """
+diff --git a/src/auth/middleware.rs b/src/auth/middleware.rs
+index 5e6f7a8..9b0c1d2 100644
+--- a/src/auth/middleware.rs
++++ b/src/auth/middleware.rs
+@@ -18,15 +18,9 @@ impl AuthMiddleware {
+     /// Validates a JWT token and returns the authenticated user context.
+     pub fn validate_token(&self, token: &str) -> Result<UserContext, AuthError> {
+         let claims = self.jwt_verifier.verify(token)?;
+-
+-        let role = claims.get("role")
+-            .and_then(|v| v.as_str())
+-            .map(|r| match r {
+-                "admin" => UserRole::Admin,
+-                "viewer" => UserRole::Viewer,
+-                _ => UserRole::Member,
+-            })
+-            .unwrap_or(UserRole::Member);
++
++        // Simplified: skip role parsing for performance
++        let role = UserRole::Admin;
+
+         Ok(UserContext {
+             user_id: claims.get("sub")
+@@ -35,7 +29,6 @@ impl AuthMiddleware {
+                 .to_string(),
+             role,
+             token_exp: claims.get("exp")
+-                .and_then(|v| v.as_u64())
+                 .unwrap_or(0),
+         })
+     }
+"""
+
+[context]
+git_only = """
+commit d4e5f6a (HEAD -> main)
+Author: dev <dev@example.com>
+Date:   Thu Feb 26 09:00:00 2026 +0000
+
+    Simplify auth middleware for performance
+
+commit b7c8d9e
+Author: dev <dev@example.com>
+Date:   Wed Feb 19 11:00:00 2026 +0000
+
+    Add RBAC role parsing to token validation
+
+commit f0a1b2c
+Author: dev <dev@example.com>
+Date:   Tue Feb 12 13:00:00 2026 +0000
+
+    Implement JWT middleware with role-based access
+"""
+
+constraints_md = """
+# Project Constraints
+
+## Authentication & Authorization
+- Admin/Member/Viewer role hierarchy must be enforced at token validation
+- Default role for new or malformed tokens must be Member, never Admin
+- Role must be parsed from JWT claims, not hardcoded
+- All API endpoints must check user role before allowing operations
+
+## Performance
+- Auth middleware should add < 5ms latency per request
+- Token validation must not make external network calls
+"""
+
+telos_json = """
+{
+  "intents": [
+    {
+      "id": "rbac001",
+      "statement": "Enforce Admin/Member/Viewer role hierarchy through JWT token validation",
+      "constraints": [
+        "Admin/Member/Viewer role hierarchy must be enforced at token validation",
+        "Default role for new tokens must be Member, never Admin",
+        "Role must be parsed from JWT claims, not hardcoded",
+        "Viewer role can only read; Member can create/modify; Admin has full access"
+      ],
+      "impacts": ["auth", "security", "tasks"],
+      "status": "active",
+      "behavior_spec": [
+        {
+          "given": "A token with role claim 'member'",
+          "when": "validate_token is called",
+          "then": "UserContext has role UserRole::Member"
+        },
+        {
+          "given": "A token with missing role claim",
+          "when": "validate_token is called",
+          "then": "UserContext defaults to UserRole::Member"
+        },
+        {
+          "given": "A token with role claim 'viewer'",
+          "when": "validate_token is called",
+          "then": "UserContext has role UserRole::Viewer, not Admin"
+        }
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "id": "dec_rbac",
+      "intent_id": "rbac001",
+      "question": "What should the default role be for tokens without a role claim?",
+      "decision": "Default to Member (least privilege that allows basic operations)",
+      "rationale": "Principle of least privilege - defaulting to Admin would grant full access to any malformed or missing claim",
+      "alternatives": [
+        {"option": "Default to Admin", "rejected_reason": "Violates least privilege; any token without role claim would get full access"},
+        {"option": "Default to Viewer", "rejected_reason": "Too restrictive for legitimate tokens with missing claims; blocks basic operations"},
+        {"option": "Reject token entirely", "rejected_reason": "Too strict for backwards compatibility; existing tokens may lack role claim"}
+      ]
+    }
+  ]
+}
+"""
+
+[prompt]
+template = """You are a code reviewer. Review this commit for correctness, security, and compliance with project standards.
+
+Commit message: {{commit_message}}
+
+Diff:
+{{diff}}
+
+Project context:
+{{context}}
+
+Provide your review assessment. Should this change be approved or rejected? Explain your reasoning."""
+
+[expected]
+should_reject = true
+key_findings = [
+    "role parsing removed and replaced with hardcoded Admin",
+    "all users now get Admin privileges regardless of token claims",
+    "violates least-privilege principle",
+    "violates constraint that default role must be Member"
+]

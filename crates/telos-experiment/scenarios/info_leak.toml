@@ -1,0 +1,153 @@
+[scenario]
+name = "info_leak"
+category = "true_positive"
+description = "Error messages enriched with sensitive internal details like key_length, user_id, and token prefix"
+
+[diff]
+commit_message = "Improve error messages for easier debugging"
+content = """
+diff --git a/src/auth/error.rs b/src/auth/error.rs
+index 4d5e6f7..8a9b0c1 100644
+--- a/src/auth/error.rs
++++ b/src/auth/error.rs
+@@ -3,14 +3,25 @@ use thiserror::Error;
+ #[derive(Debug, Error)]
+ pub enum AuthError {
+-    #[error("invalid token")]
+-    InvalidToken,
++    #[error("invalid token (prefix={prefix}, key_length={key_length})")]
++    InvalidToken {
++        prefix: String,
++        key_length: usize,
++    },
+
+-    #[error("token expired")]
+-    TokenExpired,
++    #[error("token expired at {expired_at} (user_id={user_id}, server_time={server_time})")]
++    TokenExpired {
++        user_id: String,
++        expired_at: String,
++        server_time: String,
++    },
+
+-    #[error("insufficient permissions")]
+-    InsufficientPermissions,
++    #[error("insufficient permissions for {user_id} (role={role}, required={required}, ip={client_ip})")]
++    InsufficientPermissions {
++        user_id: String,
++        role: String,
++        required: String,
++        client_ip: String,
++    },
+
+-    #[error("authentication failed")]
+-    AuthenticationFailed,
++    #[error("authentication failed (attempts={attempts}, last_attempt={last_ip}, sig_bytes={sig_bytes})")]
++    AuthenticationFailed {
++        attempts: u32,
++        last_ip: String,
++        sig_bytes: String,
++    },
+ }
+"""
+
+[context]
+git_only = """
+commit c3d4e5f (HEAD -> main)
+Author: dev <dev@example.com>
+Date:   Wed Feb 25 14:00:00 2026 +0000
+
+    Improve error messages for easier debugging
+
+commit a6b7c8d
+Author: dev <dev@example.com>
+Date:   Tue Feb 18 10:00:00 2026 +0000
+
+    Add RBAC with role-based error handling
+
+commit e9f0a1b
+Author: dev <dev@example.com>
+Date:   Mon Feb 11 08:00:00 2026 +0000
+
+    Implement authentication error types
+"""
+
+constraints_md = """
+# Project Constraints
+
+## Security
+- Auth error messages must not leak internal implementation details
+- Error responses to clients should be generic (e.g., "authentication failed")
+- Internal details (key lengths, user IDs, IP addresses) must only appear in server logs
+- Token internals (prefix, signature bytes) must never be exposed to end users
+
+## Error Handling
+- All auth errors must be logged server-side with full context
+- Client-facing error messages must be sanitized
+"""
+
+telos_json = """
+{
+  "intents": [
+    {
+      "id": "sec001",
+      "statement": "Ensure auth error messages do not leak internal details to clients",
+      "constraints": [
+        "Error messages must not leak internal implementation details",
+        "Auth errors should return generic messages to prevent information disclosure",
+        "Internal details (key_length, user_id, IP) must only appear in server-side logs",
+        "Token internals (prefix, sig_bytes) must never be in client-facing errors"
+      ],
+      "impacts": ["auth", "security"],
+      "status": "active",
+      "behavior_spec": [
+        {
+          "given": "An invalid token is submitted",
+          "when": "AuthError is returned to client",
+          "then": "Error message contains only 'invalid token' with no internal details"
+        },
+        {
+          "given": "A token has expired",
+          "when": "AuthError is returned to client",
+          "then": "Error message contains only 'token expired' with no user_id or timestamps"
+        }
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "id": "dec_err",
+      "intent_id": "sec001",
+      "question": "Should error messages include debugging details?",
+      "decision": "No - client-facing errors must be generic; detailed info goes to server logs only",
+      "rationale": "Prevents information disclosure attacks; attackers can use key_length, user_id, and timing info to enumerate users and forge tokens",
+      "alternatives": [
+        {"option": "Include details in error messages", "rejected_reason": "Information disclosure vulnerability - exposes internal state to potential attackers"}
+      ]
+    }
+  ]
+}
+"""
+
+[prompt]
+template = """You are a code reviewer. Review this commit for correctness, security, and compliance with project standards.
+
+Commit message: {{commit_message}}
+
+Diff:
+{{diff}}
+
+Project context:
+{{context}}
+
+Provide your review assessment. Should this change be approved or rejected? Explain your reasoning."""
+
+[expected]
+should_reject = true
+key_findings = [
+    "error messages now expose key_length and token prefix",
+    "user_id leaked in expiration and permission errors",
+    "client IP exposed in permission error",
+    "sig_bytes exposed in authentication failed error",
+    "violates security constraint against information disclosure"
+]
