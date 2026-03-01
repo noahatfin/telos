@@ -63,3 +63,87 @@ impl ScenarioFile {
             .replace("{{context}}", context)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn load_scenario_from_toml() {
+        let toml_content = r#"
+[scenario]
+name = "test_scenario"
+category = "true_positive"
+description = "A test"
+
+[diff]
+content = "- old\n+ new"
+commit_message = "Update thing"
+
+[context]
+git_only = "git log output"
+constraints_md = "- Must do X"
+telos_json = '{"constraints": []}'
+
+[prompt]
+template = "Review: {{commit_message}}\n{{diff}}\n{{context}}"
+
+[expected]
+should_reject = true
+key_findings = ["finding1"]
+"#;
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        tmp.write_all(toml_content.as_bytes()).unwrap();
+        let scenario = ScenarioFile::load(tmp.path()).unwrap();
+        assert_eq!(scenario.scenario.name, "test_scenario");
+        assert_eq!(scenario.scenario.category, "true_positive");
+        assert_eq!(scenario.scenario.description, "A test");
+        assert_eq!(scenario.diff.commit_message, "Update thing");
+        assert!(scenario.expected.should_reject);
+        assert_eq!(scenario.expected.key_findings, vec!["finding1"]);
+    }
+
+    #[test]
+    fn render_prompt_substitutes_context() {
+        let scenario = ScenarioFile {
+            scenario: ScenarioMeta {
+                name: "test".into(),
+                category: "true_positive".into(),
+                description: "desc".into(),
+            },
+            diff: DiffConfig {
+                content: "- old\n+ new".into(),
+                commit_message: "fix stuff".into(),
+            },
+            context: ContextConfig {
+                git_only: "GIT CONTEXT".into(),
+                constraints_md: "MD CONTEXT".into(),
+                telos_json: "TELOS CONTEXT".into(),
+            },
+            prompt: PromptConfig {
+                template: "Msg: {{commit_message}}\nDiff: {{diff}}\nCtx: {{context}}".into(),
+            },
+            expected: ExpectedConfig {
+                should_reject: true,
+                key_findings: vec![],
+            },
+        };
+
+        let git_prompt = scenario.render_prompt("git_only");
+        assert!(git_prompt.contains("GIT CONTEXT"));
+        assert!(git_prompt.contains("fix stuff"));
+        assert!(git_prompt.contains("- old\n+ new"));
+        assert!(!git_prompt.contains("{{commit_message}}"));
+        assert!(!git_prompt.contains("{{diff}}"));
+        assert!(!git_prompt.contains("{{context}}"));
+
+        let md_prompt = scenario.render_prompt("constraints_md");
+        assert!(md_prompt.contains("MD CONTEXT"));
+        assert!(md_prompt.contains("fix stuff"));
+
+        let telos_prompt = scenario.render_prompt("telos");
+        assert!(telos_prompt.contains("TELOS CONTEXT"));
+        assert!(telos_prompt.contains("fix stuff"));
+    }
+}
