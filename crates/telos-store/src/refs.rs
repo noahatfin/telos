@@ -20,6 +20,50 @@ impl RefStore {
         }
     }
 
+    /// Validate a stream name. Rejects path traversal, null bytes, empty names, and leading dots.
+    fn validate_stream_name(name: &str) -> Result<(), StoreError> {
+        if name.is_empty() {
+            return Err(StoreError::InvalidStreamName(
+                name.into(),
+                "stream name cannot be empty".into(),
+            ));
+        }
+        if name.contains('\0') {
+            return Err(StoreError::InvalidStreamName(
+                name.replace('\0', "\\0"),
+                "stream name cannot contain null bytes".into(),
+            ));
+        }
+        if name.starts_with('.') {
+            return Err(StoreError::InvalidStreamName(
+                name.into(),
+                "stream name cannot start with '.'".into(),
+            ));
+        }
+        if name.contains("..") {
+            return Err(StoreError::InvalidStreamName(
+                name.into(),
+                "stream name cannot contain '..'".into(),
+            ));
+        }
+        // Each segment between '/' must be non-empty and not start with '.'
+        for segment in name.split('/') {
+            if segment.is_empty() {
+                return Err(StoreError::InvalidStreamName(
+                    name.into(),
+                    "stream name cannot have empty path segments".into(),
+                ));
+            }
+            if segment.starts_with('.') {
+                return Err(StoreError::InvalidStreamName(
+                    name.into(),
+                    "path segments cannot start with '.'".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
     fn head_path(&self) -> PathBuf {
         self.telos_dir.join("HEAD")
     }
@@ -49,6 +93,7 @@ impl RefStore {
 
     /// Set HEAD to point to a stream.
     pub fn set_head(&self, stream_name: &str) -> Result<(), StoreError> {
+        Self::validate_stream_name(stream_name)?;
         let content = format!("ref: refs/streams/{}\n", stream_name);
         let mut lock = Lockfile::acquire(self.head_path())?;
         lock.write_all(content.as_bytes())?;
@@ -67,6 +112,7 @@ impl RefStore {
 
     /// Write (create or update) a stream reference.
     pub fn write_stream(&self, stream: &IntentStreamRef) -> Result<(), StoreError> {
+        Self::validate_stream_name(&stream.name)?;
         let path = self.stream_path(&stream.name);
         let json = serde_json::to_string_pretty(stream)?;
         let mut lock = Lockfile::acquire(&path)?;
@@ -76,6 +122,7 @@ impl RefStore {
 
     /// Create a new stream. Fails if it already exists.
     pub fn create_stream(&self, stream: &IntentStreamRef) -> Result<(), StoreError> {
+        Self::validate_stream_name(&stream.name)?;
         let path = self.stream_path(&stream.name);
         if path.exists() {
             return Err(StoreError::StreamExists(stream.name.clone()));
@@ -85,6 +132,7 @@ impl RefStore {
 
     /// Delete a stream reference. Cannot delete the stream HEAD points to.
     pub fn delete_stream(&self, name: &str) -> Result<(), StoreError> {
+        Self::validate_stream_name(name)?;
         let head = self.read_head()?;
         if head == name {
             return Err(StoreError::StreamNotFound(format!(
@@ -212,6 +260,62 @@ mod tests {
         };
         store.create_stream(&stream).unwrap();
         assert!(store.create_stream(&stream).is_err());
+    }
+
+    #[test]
+    fn stream_name_rejects_path_traversal() {
+        let (_dir, store) = setup();
+        let now = Utc::now();
+        let bad_names = vec![
+            "../../etc/passwd",
+            "foo/../../bar",
+            "../escape",
+            "foo/../bar",
+        ];
+        for name in bad_names {
+            let stream = IntentStreamRef {
+                name: name.into(),
+                tip: None,
+                created_at: now,
+                description: None,
+            };
+            let result = store.create_stream(&stream);
+            assert!(result.is_err(), "should reject stream name: {}", name);
+        }
+    }
+
+    #[test]
+    fn stream_name_rejects_dangerous_chars() {
+        let (_dir, store) = setup();
+        let now = Utc::now();
+        let bad_names = vec![".hidden", "\0evil", "", "has\0null"];
+        for name in bad_names {
+            let stream = IntentStreamRef {
+                name: name.into(),
+                tip: None,
+                created_at: now,
+                description: None,
+            };
+            let result = store.create_stream(&stream);
+            assert!(result.is_err(), "should reject stream name: {:?}", name);
+        }
+    }
+
+    #[test]
+    fn stream_name_allows_valid_hierarchical() {
+        let (_dir, store) = setup();
+        let now = Utc::now();
+        let good_names = vec!["feature-auth", "feature/onboarding", "release/v2"];
+        for name in good_names {
+            let stream = IntentStreamRef {
+                name: name.into(),
+                tip: None,
+                created_at: now,
+                description: None,
+            };
+            let result = store.create_stream(&stream);
+            assert!(result.is_ok(), "should allow stream name: {}", name);
+        }
     }
 
     #[test]

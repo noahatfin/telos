@@ -37,4 +37,7 @@ pub enum StoreError {
 
     #[error("no current stream (HEAD is detached or invalid)")]
     NoCurrentStream,
+
+    #[error("invalid stream name '{0}': {1}")]
+    InvalidStreamName(String, String),
 }
